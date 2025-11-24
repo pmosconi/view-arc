@@ -31,7 +31,7 @@ class ObstacleResult:
 
 def find_largest_obstacle(
     viewer_point: NDArray[np.float32],
-    direction_point: NDArray[np.float32],
+    view_direction: NDArray[np.float32],
     field_of_view_deg: float,
     max_range: float,
     obstacle_contours: List[NDArray[np.float32]],
@@ -45,28 +45,31 @@ def find_largest_obstacle(
     after clipping and occlusion resolution.
     
     Parameters:
-        viewer_point: (x, y) coordinates of the viewer position, shape (2,)
-        direction_point: (x, y) point defining view direction, shape (2,)
-                        The view direction vector is from viewer_point to direction_point
+        viewer_point: (x, y) coordinates of the viewer position in image space, shape (2,)
+        view_direction: (x, y) unit vector representing view direction, shape (2,)
+                       Expected to be normalized (length 1). Follows convention:
+                       x: first value (positive = RIGHT, negative = LEFT)
+                       y: second value (positive = UP, negative = DOWN)
+                       Example: [-0.37, 0.92] points up-left
         field_of_view_deg: Total field of view angle in degrees (symmetric around direction)
         max_range: Maximum sensing distance (radius) from viewer point
-        obstacle_contours: List of obstacle polygons, each an (N, 2) array of vertices
+        obstacle_contours: List of obstacle polygons, each an (N, 2) array of vertices in image coordinates
         return_intervals: If True, include angular interval breakdown in result
         
     Returns:
         ObstacleResult containing winner ID, coverage, distance, and optional intervals
         
     Raises:
-        ValueError: If inputs have invalid shapes or values
+        ValueError: If inputs have invalid shapes or values (e.g., view_direction not normalized)
         
     Example:
         >>> viewer = np.array([100.0, 100.0], dtype=np.float32)
-        >>> direction = np.array([100.0, 200.0], dtype=np.float32)
+        >>> direction_vec = np.array([0.0, 1.0], dtype=np.float32)  # pointing UP
         >>> contours = [
         ...     np.array([[90, 150], [110, 150], [100, 170]], dtype=np.float32),
         ...     np.array([[80, 200], [120, 200], [100, 230]], dtype=np.float32)
         ... ]
-        >>> result = find_largest_obstacle(viewer, direction, 30.0, 150.0, contours)
+        >>> result = find_largest_obstacle(viewer, direction_vec, 30.0, 150.0, contours)
         >>> print(f"Winner: obstacle {result.obstacle_id}, coverage: {result.angular_coverage:.2f} rad")
     """
     raise NotImplementedError("Implementation pending")

@@ -5,15 +5,15 @@ Determine which obstacle contour has the largest **visible** angular coverage fr
 
 ## Coordinate and Input Model
 - Image coordinates are 2D Cartesian with origin at pixel `(0,0)` unless specified otherwise.
-- `P0 = (x0, y0)` is the viewer point.
-- `P1 = (x1, y1)` defines the viewing direction; the unit vector is `v = normalize(P1 - P0)`.
+- `P0 = (x0, y0)` is the viewer point (person coordinate).
+- `v = (vx, vy)` is the viewing direction provided as a **unit vector** (length 1) on a unit circle. The vector components follow the convention: first value represents "x" (positive = RIGHT, negative = LEFT), second value represents "y" (positive = UP, negative = DOWN). For example, `v = [-0.37, 0.92]` points up-left.
 - Field of view is characterized by a symmetric half-angle `θ_fov/2` centered on `v` and a maximum sensing radius `R_max`.
 - Obstacles are provided as simple polygonal contours `Oi`, each a vertex list ordered consistently (clockwise or counter-clockwise) without self-intersections.
 - Output is the identifier of the obstacle with maximal visible angular coverage inside the arc, plus its aggregated coverage value (radians or degrees) and representative distance metrics.
 
 ## Derived Geometry
 1. Translate every point by subtracting `P0` to work in a viewer-centric reference frame (`P0` becomes origin).
-2. Precompute `α_center = atan2(v_y, v_x)` and bounds `[α_min, α_max] = [α_center - θ_fov/2, α_center + θ_fov/2]`.
+2. The view direction `v` is provided as a pre-normalized unit vector. Validate that `|v| ≈ 1` and compute `α_center = atan2(v_y, v_x)` and bounds `[α_min, α_max] = [α_center - θ_fov/2, α_center + θ_fov/2]`.
 3. Define the circular-sector wedge `W` as the intersection of:
    - Two half-planes bounded by rays at `α_min` and `α_max` issuing from the origin.
    - A circle of radius `R_max`.
@@ -124,8 +124,9 @@ For each interval demarcated by vertex events, a ray test finds the nearest inte
 
 ### Processing Steps in Python Terms
 1. **Input hydration**
-   - Accept `P0`, `P1`, `theta_fov_deg`, `r_max`, and a list of NumPy arrays shaped `(n_i, 2)` representing obstacle contours.
-   - Convert degrees to radians once; compute viewing unit vector via `cv2.normalize` or NumPy `np.linalg.norm`.
+   - Accept `P0`, `view_direction` (pre-normalized unit vector), `theta_fov_deg`, `r_max`, and a list of NumPy arrays shaped `(n_i, 2)` representing obstacle contours.
+   - Validate that `view_direction` is approximately unit length: `|np.linalg.norm(view_direction) - 1| < tolerance`.
+   - Convert degrees to radians once; compute central angle via `np.arctan2(view_direction[1], view_direction[0])`.
 
 2. **Viewer-centric transform**
    - Subtract `P0` from all contour points using NumPy broadcasting; store per-obstacle bounding boxes (`np.min`, `np.max`).
@@ -171,6 +172,6 @@ For each interval demarcated by vertex events, a ray test finds the nearest inte
 
 ## Deliverables
 - Implementation must expose:
-  - API accepting `P0`, `P1`, `θ_fov`, `R_max`, and obstacle contours.
+  - API accepting `P0`, `view_direction` (unit vector), `θ_fov`, `R_max`, and obstacle contours.
   - Result structure containing winning obstacle ID, angular coverage value, minimal distance, and optionally the list of angular intervals it occupies.
 - Unit and integration tests scripted according to the validation checklist.

@@ -10,7 +10,7 @@ from numpy.typing import NDArray
 def draw_wedge_overlay(
     image: NDArray[np.uint8],
     viewer_point: NDArray[np.float32],
-    direction_point: NDArray[np.float32],
+    view_direction: NDArray[np.float32],
     field_of_view_deg: float,
     max_range: float,
     color: tuple = (0, 255, 0),
@@ -22,7 +22,7 @@ def draw_wedge_overlay(
     Parameters:
         image: Input image (H, W, 3) BGR format
         viewer_point: Viewer position (2,)
-        direction_point: Direction anchor (2,)
+        view_direction: Unit vector (2,) representing view direction
         field_of_view_deg: Field of view in degrees
         max_range: Maximum range radius
         color: BGR color tuple

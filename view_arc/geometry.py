@@ -41,19 +41,22 @@ def to_polar(
     raise NotImplementedError
 
 
-def compute_view_direction(
-    viewer_point: NDArray[np.float32],
-    direction_point: NDArray[np.float32]
-) -> Tuple[NDArray[np.float32], float]:
+def validate_and_get_direction_angle(
+    view_direction: NDArray[np.float32],
+    tolerance: float = 1e-3
+) -> float:
     """
-    Compute normalized view direction vector and its angle.
+    Validate that view direction is normalized and compute its angle.
     
     Parameters:
-        viewer_point: Origin (2,)
-        direction_point: Point defining direction (2,)
+        view_direction: Unit vector (2,) representing view direction
+        tolerance: Tolerance for normalization check (|length - 1| < tolerance)
         
     Returns:
-        Tuple of (unit_vector, angle_radians)
+        Angle in radians corresponding to the direction
+        
+    Raises:
+        ValueError: If view_direction is not approximately unit length
     """
     raise NotImplementedError
 
