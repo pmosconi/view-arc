@@ -7,6 +7,8 @@ import numpy as np
 from numpy.typing import NDArray
 
 HALFPLANE_EPSILON = 1e-6
+ARC_SAMPLE_STEP = np.deg2rad(7.5)
+MIN_ARC_SAMPLES = 32
 
 
 def clip_polygon_to_wedge(
@@ -160,10 +162,29 @@ def clip_polygon_circle(
     radius_sq = radius * radius
     output_vertices: List[NDArray[np.float32]] = []
     n = polygon.shape[0]
+    pending_arc_start: Optional[float] = None
     
     def is_inside(point: NDArray[np.float32]) -> bool:
         """Check if point is inside or on the circle."""
         return float(np.dot(point, point)) <= radius_sq + HALFPLANE_EPSILON
+
+    def append_arc_points(start_angle: float, end_angle: float) -> None:
+        """Approximate circular arc between start and end angles (CCW)."""
+        angle_delta = end_angle - start_angle
+        if angle_delta <= 0.0:
+            angle_delta += 2.0 * np.pi
+        if angle_delta < 1e-6:
+            return
+
+        segments = max(1, int(np.ceil(angle_delta / ARC_SAMPLE_STEP)))
+        step = angle_delta / segments
+        for idx in range(1, segments):
+            angle = start_angle + step * idx
+            point = np.array([
+                radius * np.cos(angle),
+                radius * np.sin(angle),
+            ], dtype=np.float32)
+            output_vertices.append(point)
     
     def compute_circle_intersections(
         p1: NDArray[np.float32], 
@@ -224,13 +245,26 @@ def clip_polygon_circle(
         if current_inside and not next_inside:
             # Edge exits the circle - add the exit intersection
             if intersections:
-                # Take the first intersection (closest to current)
-                output_vertices.append(intersections[0][1])
+                exit_point = intersections[0][1]
+                if not np.allclose(exit_point, output_vertices[-1], atol=1e-7):
+                    output_vertices.append(exit_point)
+                pending_arc_start = float(np.arctan2(exit_point[1], exit_point[0]))
+            else:
+                pending_arc_start = float(np.arctan2(current[1], current[0]))
         elif not current_inside and next_inside:
             # Edge enters the circle - add the entry intersection
             if intersections:
-                # Take the last intersection (closest to next)
-                output_vertices.append(intersections[-1][1])
+                entry_point = intersections[-1][1]
+            else:
+                entry_point = next_vertex.astype(np.float32)
+
+            if pending_arc_start is not None:
+                arc_end = float(np.arctan2(entry_point[1], entry_point[0]))
+                append_arc_points(pending_arc_start, arc_end)
+                pending_arc_start = None
+
+            if not output_vertices or not np.allclose(entry_point, output_vertices[-1], atol=1e-7):
+                output_vertices.append(entry_point)
         elif not current_inside and not next_inside:
             # Both outside - check if edge passes through circle
             if len(intersections) == 2:
@@ -238,7 +272,14 @@ def clip_polygon_circle(
                 output_vertices.append(intersections[0][1])
                 output_vertices.append(intersections[1][1])
     
+    if pending_arc_start is not None and len(output_vertices) > 0:
+        first_angle = float(np.arctan2(output_vertices[0][1], output_vertices[0][0]))
+        append_arc_points(pending_arc_start, first_angle)
+        pending_arc_start = None
+
     if len(output_vertices) == 0:
+        if _polygon_contains_point(polygon, np.array([0.0, 0.0], dtype=np.float32)):
+            return _full_circle_polygon(radius)
         return np.array([], dtype=np.float32).reshape(0, 2)
     
     return np.array(output_vertices, dtype=np.float32)
@@ -274,3 +315,44 @@ def compute_bounding_box(
     min_point = np.min(polygon, axis=0).astype(np.float32)
     max_point = np.max(polygon, axis=0).astype(np.float32)
     return min_point, max_point
+
+
+def _polygon_contains_point(
+    polygon: NDArray[np.float32],
+    point: NDArray[np.float32]
+) -> bool:
+    """Ray-casting test to check if point lies inside polygon."""
+    if polygon.shape[0] < 3:
+        return False
+
+    px, py = float(point[0]), float(point[1])
+    inside = False
+    j = polygon.shape[0] - 1
+    for i in range(polygon.shape[0]):
+        xi, yi = float(polygon[i, 0]), float(polygon[i, 1])
+        xj, yj = float(polygon[j, 0]), float(polygon[j, 1])
+        intersects = ((yi > py) != (yj > py))
+        if intersects:
+            dy = yj - yi
+            if abs(dy) < 1e-12:
+                dy = 1e-12 if dy >= 0 else -1e-12
+            slope = (xj - xi) / dy
+            x_at_y = xi + slope * (py - yi)
+            if x_at_y > px:
+                inside = not inside
+        j = i
+    return inside
+
+
+def _full_circle_polygon(radius: float) -> NDArray[np.float32]:
+    """Return a polygonal approximation of the full circle."""
+    if radius <= 0:
+        return np.array([], dtype=np.float32).reshape(0, 2)
+
+    circumference_steps = max(MIN_ARC_SAMPLES, int(np.ceil(2.0 * np.pi / ARC_SAMPLE_STEP)))
+    angles = np.linspace(0.0, 2.0 * np.pi, circumference_steps, endpoint=False)
+    points = np.stack([
+        radius * np.cos(angles),
+        radius * np.sin(angles),
+    ], axis=1)
+    return points.astype(np.float32)

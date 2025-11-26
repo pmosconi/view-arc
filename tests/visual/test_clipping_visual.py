@@ -453,9 +453,9 @@ class TestKnownGeometricConstructions:
 
     def _draw_circle(self, ax, radius, color='red', linestyle='--', label=None):
         """Draw a circle centered at origin."""
-        circle = plt.Circle((0, 0), radius, fill=False, 
-                            edgecolor=color, linewidth=2, linestyle=linestyle,
-                            label=label)
+        circle = mpatches.Circle((0, 0), radius, fill=False,
+                                edgecolor=color, linewidth=2, linestyle=linestyle,
+                                label=label)
         ax.add_patch(circle)
 
     def _draw_wedge(self, ax, alpha_min, alpha_max, radius, color='red', alpha=0.1, label=None):
@@ -594,9 +594,9 @@ class TestCircleClippingVisual:
 
     def _draw_circle(self, ax, radius, color='red', linestyle='--', label=None):
         """Draw a circle centered at origin."""
-        circle = plt.Circle((0, 0), radius, fill=False, 
-                            edgecolor=color, linewidth=2, linestyle=linestyle,
-                            label=label)
+        circle = mpatches.Circle((0, 0), radius, fill=False,
+                                 edgecolor=color, linewidth=2, linestyle=linestyle,
+                                 label=label)
         ax.add_patch(circle)
 
     def _setup_axes(self, ax, title, xlim=(-5, 5), ylim=(-5, 5)):
@@ -759,58 +759,51 @@ class TestCircleClippingVisual:
         result = clip_polygon_circle(star, radius)
         self._draw_polygon(ax, result, color='purple', alpha=0.5, edgecolor='darkviolet', label='Clipped')
         ax.legend(loc='upper right')
-        
-        # Large square centered at origin
-        ax = axes[1, 0]
-        self._setup_axes(ax, "Large Square Clipped")
+
+    def test_visual_circle_clip_arc_sampling(self):
+        """Visual: Highlight sampled arcs when circle boundary dominates."""
+        fig, axes = plt.subplots(1, 2, figsize=(14, 6))
+
+        # Case 1: Polygon fully encloses the circle -> expect circular result
+        ax = axes[0]
+        self._setup_axes(ax, "Polygon Encloses Circle")
         square = np.array([
             [-4.0, -4.0],
             [4.0, -4.0],
             [4.0, 4.0],
             [-4.0, 4.0],
         ], dtype=np.float32)
+        radius = 1.5
         self._draw_circle(ax, radius, label=f'Circle r={radius}')
-        self._draw_polygon(ax, square, color='lightblue', alpha=0.3, label='Original')
+        self._draw_polygon(ax, square, color='lightblue', alpha=0.2, label='Original')
         result = clip_polygon_circle(square, radius)
-        self._draw_polygon(ax, result, color='orange', alpha=0.5, edgecolor='darkorange', label='Clipped')
+        self._draw_polygon(ax, result, color='blue', alpha=0.5, edgecolor='darkblue', label='Clipped (Arc Sampled)')
+        ax.annotate(f"{result.shape[0]} samples", xy=(0.05, 0.9), xycoords='axes fraction',
+                    fontsize=10, color='blue', fontweight='bold')
         ax.legend(loc='upper right')
-        
-        # Off-center polygon
-        ax = axes[1, 1]
-        self._setup_axes(ax, "Off-center Polygon Clipped")
-        polygon = np.array([
-            [1.0, 1.0],
-            [5.0, 1.0],
-            [5.0, 3.0],
-            [3.0, 5.0],
-            [1.0, 3.0],
+
+        # Case 2: Rectangle above circle -> clipped area defined by arc boundary
+        ax = axes[1]
+        self._setup_axes(ax, "Arc Boundary Clipping", ylim=(-0.5, 4))
+        rectangle = np.array([
+            [-1.2, 0.0],
+            [1.2, 0.0],
+            [1.2, 3.5],
+            [-1.2, 3.5],
         ], dtype=np.float32)
+        radius = 1.0
         self._draw_circle(ax, radius, label=f'Circle r={radius}')
-        self._draw_polygon(ax, polygon, color='lightblue', alpha=0.3, label='Original')
-        result = clip_polygon_circle(polygon, radius)
-        self._draw_polygon(ax, result, color='teal', alpha=0.5, edgecolor='darkcyan', label='Clipped')
+        self._draw_polygon(ax, rectangle, color='lightblue', alpha=0.2, label='Original')
+        result = clip_polygon_circle(rectangle, radius)
+        self._draw_polygon(ax, result, color='green', alpha=0.5, edgecolor='darkgreen', label='Clipped (Arc Preserved)')
+        # Highlight arc points
+        arc_points = result[result[:, 1] > 0.1]
+        ax.scatter(arc_points[:, 0], arc_points[:, 1], color='red', s=25, zorder=5, label='Arc Samples')
         ax.legend(loc='upper right')
-        
-        # Vertex exactly on circle
-        ax = axes[1, 2]
-        self._setup_axes(ax, "Vertex on Circle Boundary")
-        # Create polygon with one vertex exactly on circle
-        polygon = np.array([
-            [0.0, 0.0],
-            [radius, 0.0],  # Exactly on circle
-            [2.0, 2.0],
-            [0.0, 2.0],
-        ], dtype=np.float32)
-        self._draw_circle(ax, radius, label=f'Circle r={radius}')
-        self._draw_polygon(ax, polygon, color='lightblue', alpha=0.3, label='Original')
-        result = clip_polygon_circle(polygon, radius)
-        self._draw_polygon(ax, result, color='coral', alpha=0.5, edgecolor='orangered', label='Clipped')
-        ax.plot(radius, 0.0, 'go', markersize=12, label='On boundary', zorder=5)
-        ax.legend(loc='upper right')
-        
-        fig.suptitle("Circle Clipping: Various Polygon Shapes", fontsize=14, fontweight='bold')
+
+        fig.suptitle("Circle Clipping: Sampled Arc Visualization", fontsize=14, fontweight='bold')
         plt.tight_layout()
-        save_figure(fig, "circle_clip_various_shapes")
+        save_figure(fig, "circle_clip_arc_sampling")
 
 
 @pytest.mark.skipif(not HAS_MATPLOTLIB, reason="matplotlib not installed")
@@ -1018,9 +1011,9 @@ class TestWedgeClippingVisual:
         self._setup_axes(ax, f"Step 3: Circle clip at r = {radius}")
         from view_arc.clipping import clip_polygon_circle
         step3 = clip_polygon_circle(step2, radius)
-        circle = plt.Circle((0, 0), radius, fill=False, 
-                            edgecolor='purple', linewidth=2, linestyle='--',
-                            label=f'Circle r={radius}')
+        circle = mpatches.Circle((0, 0), radius, fill=False,
+                     edgecolor='purple', linewidth=2, linestyle='--',
+                     label=f'Circle r={radius}')
         ax.add_patch(circle)
         self._draw_polygon(ax, step2, color='lightblue', alpha=0.2)
         self._draw_polygon(ax, step3, color='purple', alpha=0.5, edgecolor='darkviolet', label='Final result')

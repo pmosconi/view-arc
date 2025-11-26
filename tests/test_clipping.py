@@ -509,6 +509,43 @@ class TestClipPolygonCircle:
         distances = np.sqrt(result[:, 0]**2 + result[:, 1]**2)
         assert np.all(distances <= 2.0 + 1e-5)
 
+    def test_clip_circle_polygon_encloses_circle_returns_sampled_arc(self):
+        """Polygons that fully contain the circle should return an arc-sampled disk."""
+        square = np.array([
+            [-5.0, -5.0],
+            [5.0, -5.0],
+            [5.0, 5.0],
+            [-5.0, 5.0],
+        ], dtype=np.float32)
+
+        radius = 1.5
+        result = clip_polygon_circle(square, radius=radius)
+
+        # Expect many vertices approximating the circle
+        assert result.shape[0] >= 16
+
+        distances = np.sqrt(result[:, 0] ** 2 + result[:, 1] ** 2)
+        assert np.allclose(distances, radius, atol=5e-3)
+
+    def test_clip_circle_retains_arc_when_polygon_outside(self):
+        """Circle boundary segments should be preserved as sampled arcs."""
+        rectangle = np.array([
+            [-1.0, 0.0],
+            [1.0, 0.0],
+            [1.0, 3.0],
+            [-1.0, 3.0],
+        ], dtype=np.float32)
+
+        result = clip_polygon_circle(rectangle, radius=1.0)
+
+        # The intersection should include points along the circular arc (y > 0)
+        assert result.shape[0] >= 6
+        assert np.any(result[:, 1] > 0.5)
+
+        # Ensure all points lie within the circle tolerance
+        distances = np.sqrt(result[:, 0] ** 2 + result[:, 1] ** 2)
+        assert np.all(distances <= 1.0 + 1e-5)
+
 
 class TestClipPolygonToWedge:
     """Tests for clip_polygon_to_wedge() function."""
