@@ -28,6 +28,8 @@ from view_arc.clipping import (
     is_valid_polygon,
     compute_bounding_box,
     clip_polygon_halfplane,
+    clip_polygon_circle,
+    clip_polygon_to_wedge,
 )
 
 
@@ -437,6 +439,49 @@ class TestClippingVisual:
 class TestKnownGeometricConstructions:
     """Compare clipping results against known geometric constructions."""
 
+    def _draw_polygon(self, ax, polygon, color='blue', alpha=0.3, label=None, edgecolor=None):
+        """Draw a polygon on the axes."""
+        if polygon.shape[0] < 3:
+            return
+        if edgecolor is None:
+            edgecolor = color
+        patch = mpatches.Polygon(polygon, closed=True, 
+                                  facecolor=color, alpha=alpha, 
+                                  edgecolor=edgecolor, linewidth=2,
+                                  label=label)
+        ax.add_patch(patch)
+
+    def _draw_circle(self, ax, radius, color='red', linestyle='--', label=None):
+        """Draw a circle centered at origin."""
+        circle = plt.Circle((0, 0), radius, fill=False, 
+                            edgecolor=color, linewidth=2, linestyle=linestyle,
+                            label=label)
+        ax.add_patch(circle)
+
+    def _draw_wedge(self, ax, alpha_min, alpha_max, radius, color='red', alpha=0.1, label=None):
+        """Draw a wedge (circular sector) from origin."""
+        # Convert to degrees for matplotlib
+        theta1 = np.degrees(alpha_min)
+        theta2 = np.degrees(alpha_max)
+        wedge = mpatches.Wedge((0, 0), radius, theta1, theta2,
+                               facecolor=color, alpha=alpha,
+                               edgecolor=color, linewidth=2, linestyle='--',
+                               label=label)
+        ax.add_patch(wedge)
+
+    def _setup_axes(self, ax, title, xlim=(-3, 4), ylim=(-3, 4)):
+        """Setup axes with grid and labels."""
+        ax.set_xlim(xlim)
+        ax.set_ylim(ylim)
+        ax.set_aspect('equal')
+        ax.grid(True, alpha=0.3)
+        ax.axhline(y=0, color='k', linewidth=0.5)
+        ax.axvline(x=0, color='k', linewidth=0.5)
+        ax.set_xlabel('X')
+        ax.set_ylabel('Y')
+        ax.set_title(title)
+        ax.plot(0, 0, 'ko', markersize=8)  # Origin marker
+
     def test_visual_compare_to_analytical_solution(self):
         """Compare algorithm output to analytically computed result."""
         fig, ax = plt.subplots(figsize=(8, 8))
@@ -529,3 +574,629 @@ class TestKnownGeometricConstructions:
                     found = True
                     break
             assert found, f"Expected vertex {av} not found in algorithm result"
+
+
+@pytest.mark.skipif(not HAS_MATPLOTLIB, reason="matplotlib not installed")
+class TestCircleClippingVisual:
+    """Visual validation tests for circle clipping operations (Step 2.2)."""
+
+    def _draw_polygon(self, ax, polygon, color='blue', alpha=0.3, label=None, edgecolor=None):
+        """Draw a polygon on the axes."""
+        if polygon.shape[0] < 3:
+            return
+        if edgecolor is None:
+            edgecolor = color
+        patch = mpatches.Polygon(polygon, closed=True, 
+                                  facecolor=color, alpha=alpha, 
+                                  edgecolor=edgecolor, linewidth=2,
+                                  label=label)
+        ax.add_patch(patch)
+
+    def _draw_circle(self, ax, radius, color='red', linestyle='--', label=None):
+        """Draw a circle centered at origin."""
+        circle = plt.Circle((0, 0), radius, fill=False, 
+                            edgecolor=color, linewidth=2, linestyle=linestyle,
+                            label=label)
+        ax.add_patch(circle)
+
+    def _setup_axes(self, ax, title, xlim=(-5, 5), ylim=(-5, 5)):
+        """Setup axes with grid and labels."""
+        ax.set_xlim(xlim)
+        ax.set_ylim(ylim)
+        ax.set_aspect('equal')
+        ax.grid(True, alpha=0.3)
+        ax.axhline(y=0, color='k', linewidth=0.5)
+        ax.axvline(x=0, color='k', linewidth=0.5)
+        ax.set_xlabel('X')
+        ax.set_ylabel('Y')
+        ax.set_title(title)
+        ax.plot(0, 0, 'ko', markersize=8)  # Origin marker
+
+    def test_visual_circle_clip_basic(self):
+        """Visual: Basic circle clipping scenarios."""
+        fig, axes = plt.subplots(1, 3, figsize=(15, 5))
+        
+        radius = 3.0
+        
+        # Test case 1: Polygon fully inside circle
+        ax = axes[0]
+        self._setup_axes(ax, "Fully Inside: No clipping")
+        square = np.array([
+            [0.5, 0.5],
+            [1.5, 0.5],
+            [1.5, 1.5],
+            [0.5, 1.5],
+        ], dtype=np.float32)
+        self._draw_circle(ax, radius, label=f'Circle r={radius}')
+        self._draw_polygon(ax, square, color='lightblue', alpha=0.3, label='Original')
+        result = clip_polygon_circle(square, radius)
+        self._draw_polygon(ax, result, color='blue', alpha=0.5, edgecolor='darkblue', label='Clipped')
+        ax.legend(loc='upper right')
+        
+        # Test case 2: Polygon fully outside circle
+        ax = axes[1]
+        self._setup_axes(ax, "Fully Outside: Complete removal")
+        square = np.array([
+            [4.0, 4.0],
+            [5.0, 4.0],
+            [5.0, 5.0],
+            [4.0, 5.0],
+        ], dtype=np.float32)
+        self._draw_circle(ax, radius, label=f'Circle r={radius}')
+        self._draw_polygon(ax, square, color='lightblue', alpha=0.3, label='Original')
+        result = clip_polygon_circle(square, radius)
+        if result.shape[0] == 0:
+            ax.annotate('Result: Empty polygon', xy=(0, 0), fontsize=10, 
+                       ha='center', color='red', fontweight='bold')
+        ax.legend(loc='upper right')
+        
+        # Test case 3: Polygon partially inside
+        ax = axes[2]
+        self._setup_axes(ax, "Partial: Some vertices clipped")
+        square = np.array([
+            [1.0, 1.0],
+            [4.0, 1.0],
+            [4.0, 4.0],
+            [1.0, 4.0],
+        ], dtype=np.float32)
+        self._draw_circle(ax, radius, label=f'Circle r={radius}')
+        self._draw_polygon(ax, square, color='lightblue', alpha=0.3, label='Original')
+        result = clip_polygon_circle(square, radius)
+        self._draw_polygon(ax, result, color='green', alpha=0.5, edgecolor='darkgreen', label='Clipped')
+        # Mark intersection points on circle
+        if result.shape[0] > 0:
+            distances = np.sqrt(result[:, 0]**2 + result[:, 1]**2)
+            for i, (v, d) in enumerate(zip(result, distances)):
+                if abs(d - radius) < 0.1:
+                    ax.plot(v[0], v[1], 'ro', markersize=8, zorder=5)
+        ax.legend(loc='upper right')
+        
+        fig.suptitle("Circle Clipping: Basic Scenarios", fontsize=14, fontweight='bold')
+        plt.tight_layout()
+        save_figure(fig, "circle_clip_basic")
+
+    def test_visual_circle_clip_edge_through(self):
+        """Visual: Edge passes through circle (both endpoints outside)."""
+        fig, axes = plt.subplots(1, 2, figsize=(12, 6))
+        
+        radius = 2.0
+        
+        # Test case 1: Horizontal rectangle through origin
+        ax = axes[0]
+        self._setup_axes(ax, "Edge Through Circle: Horizontal")
+        rectangle = np.array([
+            [-4.0, -0.5],
+            [4.0, -0.5],
+            [4.0, 0.5],
+            [-4.0, 0.5],
+        ], dtype=np.float32)
+        self._draw_circle(ax, radius, label=f'Circle r={radius}')
+        self._draw_polygon(ax, rectangle, color='lightblue', alpha=0.3, label='Original')
+        result = clip_polygon_circle(rectangle, radius)
+        self._draw_polygon(ax, result, color='blue', alpha=0.5, edgecolor='darkblue', label='Clipped')
+        ax.legend(loc='upper right')
+        
+        # Test case 2: Diagonal rectangle
+        ax = axes[1]
+        self._setup_axes(ax, "Edge Through Circle: Diagonal")
+        # Rectangle from bottom-left to top-right
+        rectangle = np.array([
+            [-4.0, -4.0],
+            [-3.0, -4.0],
+            [4.0, 3.0],
+            [3.0, 3.0],
+        ], dtype=np.float32)
+        self._draw_circle(ax, radius, label=f'Circle r={radius}')
+        self._draw_polygon(ax, rectangle, color='lightblue', alpha=0.3, label='Original')
+        result = clip_polygon_circle(rectangle, radius)
+        if result.shape[0] >= 3:
+            self._draw_polygon(ax, result, color='orange', alpha=0.5, edgecolor='darkorange', label='Clipped')
+        ax.legend(loc='upper right')
+        
+        fig.suptitle("Circle Clipping: Edges Passing Through", fontsize=14, fontweight='bold')
+        plt.tight_layout()
+        save_figure(fig, "circle_clip_edge_through")
+
+    def test_visual_circle_clip_various_shapes(self):
+        """Visual: Circle clipping with various polygon shapes."""
+        fig, axes = plt.subplots(2, 3, figsize=(15, 10))
+        
+        radius = 3.0
+        
+        # Triangle extending beyond circle
+        ax = axes[0, 0]
+        self._setup_axes(ax, "Triangle Clipped")
+        triangle = np.array([
+            [0.0, 0.0],
+            [5.0, 0.0],
+            [2.5, 5.0],
+        ], dtype=np.float32)
+        self._draw_circle(ax, radius, label=f'Circle r={radius}')
+        self._draw_polygon(ax, triangle, color='lightblue', alpha=0.3, label='Original')
+        result = clip_polygon_circle(triangle, radius)
+        self._draw_polygon(ax, result, color='blue', alpha=0.5, edgecolor='darkblue', label='Clipped')
+        ax.legend(loc='upper right')
+        
+        # Pentagon
+        ax = axes[0, 1]
+        self._setup_axes(ax, "Pentagon Clipped")
+        angles = np.linspace(0, 2*np.pi, 6)[:-1] + np.pi/2
+        pentagon = np.array([[4*np.cos(a), 4*np.sin(a)] for a in angles], dtype=np.float32)
+        self._draw_circle(ax, radius, label=f'Circle r={radius}')
+        self._draw_polygon(ax, pentagon, color='lightblue', alpha=0.3, label='Original')
+        result = clip_polygon_circle(pentagon, radius)
+        self._draw_polygon(ax, result, color='green', alpha=0.5, edgecolor='darkgreen', label='Clipped')
+        ax.legend(loc='upper right')
+        
+        # Star shape (non-convex)
+        ax = axes[0, 2]
+        self._setup_axes(ax, "Star Shape Clipped")
+        star_angles = np.linspace(0, 2*np.pi, 11)[:-1]
+        star_radii = [4 if i % 2 == 0 else 2 for i in range(10)]
+        star = np.array([[r*np.cos(a), r*np.sin(a)] for a, r in zip(star_angles, star_radii)], dtype=np.float32)
+        self._draw_circle(ax, radius, label=f'Circle r={radius}')
+        self._draw_polygon(ax, star, color='lightblue', alpha=0.3, label='Original')
+        result = clip_polygon_circle(star, radius)
+        self._draw_polygon(ax, result, color='purple', alpha=0.5, edgecolor='darkviolet', label='Clipped')
+        ax.legend(loc='upper right')
+        
+        # Large square centered at origin
+        ax = axes[1, 0]
+        self._setup_axes(ax, "Large Square Clipped")
+        square = np.array([
+            [-4.0, -4.0],
+            [4.0, -4.0],
+            [4.0, 4.0],
+            [-4.0, 4.0],
+        ], dtype=np.float32)
+        self._draw_circle(ax, radius, label=f'Circle r={radius}')
+        self._draw_polygon(ax, square, color='lightblue', alpha=0.3, label='Original')
+        result = clip_polygon_circle(square, radius)
+        self._draw_polygon(ax, result, color='orange', alpha=0.5, edgecolor='darkorange', label='Clipped')
+        ax.legend(loc='upper right')
+        
+        # Off-center polygon
+        ax = axes[1, 1]
+        self._setup_axes(ax, "Off-center Polygon Clipped")
+        polygon = np.array([
+            [1.0, 1.0],
+            [5.0, 1.0],
+            [5.0, 3.0],
+            [3.0, 5.0],
+            [1.0, 3.0],
+        ], dtype=np.float32)
+        self._draw_circle(ax, radius, label=f'Circle r={radius}')
+        self._draw_polygon(ax, polygon, color='lightblue', alpha=0.3, label='Original')
+        result = clip_polygon_circle(polygon, radius)
+        self._draw_polygon(ax, result, color='teal', alpha=0.5, edgecolor='darkcyan', label='Clipped')
+        ax.legend(loc='upper right')
+        
+        # Vertex exactly on circle
+        ax = axes[1, 2]
+        self._setup_axes(ax, "Vertex on Circle Boundary")
+        # Create polygon with one vertex exactly on circle
+        polygon = np.array([
+            [0.0, 0.0],
+            [radius, 0.0],  # Exactly on circle
+            [2.0, 2.0],
+            [0.0, 2.0],
+        ], dtype=np.float32)
+        self._draw_circle(ax, radius, label=f'Circle r={radius}')
+        self._draw_polygon(ax, polygon, color='lightblue', alpha=0.3, label='Original')
+        result = clip_polygon_circle(polygon, radius)
+        self._draw_polygon(ax, result, color='coral', alpha=0.5, edgecolor='orangered', label='Clipped')
+        ax.plot(radius, 0.0, 'go', markersize=12, label='On boundary', zorder=5)
+        ax.legend(loc='upper right')
+        
+        fig.suptitle("Circle Clipping: Various Polygon Shapes", fontsize=14, fontweight='bold')
+        plt.tight_layout()
+        save_figure(fig, "circle_clip_various_shapes")
+
+
+@pytest.mark.skipif(not HAS_MATPLOTLIB, reason="matplotlib not installed")
+class TestWedgeClippingVisual:
+    """Visual validation tests for wedge clipping operations (Step 2.2)."""
+
+    def _draw_polygon(self, ax, polygon, color='blue', alpha=0.3, label=None, edgecolor=None):
+        """Draw a polygon on the axes."""
+        if polygon.shape[0] < 3:
+            return
+        if edgecolor is None:
+            edgecolor = color
+        patch = mpatches.Polygon(polygon, closed=True, 
+                                  facecolor=color, alpha=alpha, 
+                                  edgecolor=edgecolor, linewidth=2,
+                                  label=label)
+        ax.add_patch(patch)
+
+    def _draw_wedge(self, ax, alpha_min, alpha_max, radius, color='red', alpha=0.1, label=None):
+        """Draw a wedge (circular sector) from origin."""
+        # Convert to degrees for matplotlib
+        theta1 = np.degrees(alpha_min)
+        theta2 = np.degrees(alpha_max)
+        wedge = mpatches.Wedge((0, 0), radius, theta1, theta2,
+                               facecolor=color, alpha=alpha,
+                               edgecolor=color, linewidth=2, linestyle='--',
+                               label=label)
+        ax.add_patch(wedge)
+
+    def _draw_wedge_boundaries(self, ax, alpha_min, alpha_max, radius, color='red'):
+        """Draw wedge boundary rays and arc."""
+        # Draw rays from origin
+        for angle, lbl in [(alpha_min, 'α_min'), (alpha_max, 'α_max')]:
+            x_end = radius * np.cos(angle)
+            y_end = radius * np.sin(angle)
+            ax.plot([0, x_end], [0, y_end], color=color, linewidth=2, linestyle='--')
+            ax.annotate(lbl, xy=(x_end*0.7, y_end*0.7), fontsize=9, color=color)
+        
+        # Draw arc
+        arc_angles = np.linspace(alpha_min, alpha_max, 50)
+        arc_x = radius * np.cos(arc_angles)
+        arc_y = radius * np.sin(arc_angles)
+        ax.plot(arc_x, arc_y, color=color, linewidth=2, linestyle='--')
+
+    def _setup_axes(self, ax, title, xlim=(-5, 5), ylim=(-5, 5)):
+        """Setup axes with grid and labels."""
+        ax.set_xlim(xlim)
+        ax.set_ylim(ylim)
+        ax.set_aspect('equal')
+        ax.grid(True, alpha=0.3)
+        ax.axhline(y=0, color='k', linewidth=0.5)
+        ax.axvline(x=0, color='k', linewidth=0.5)
+        ax.set_xlabel('X')
+        ax.set_ylabel('Y')
+        ax.set_title(title)
+        ax.plot(0, 0, 'ko', markersize=8)  # Origin marker
+
+    def test_visual_wedge_clip_basic(self):
+        """Visual: Basic wedge clipping scenarios."""
+        fig, axes = plt.subplots(1, 3, figsize=(15, 5))
+        
+        # Test case 1: Polygon fully inside wedge
+        ax = axes[0]
+        self._setup_axes(ax, "Fully Inside Wedge")
+        alpha_min, alpha_max, radius = np.radians(20), np.radians(70), 4.0
+        square = np.array([
+            [1.0, 1.0],
+            [2.0, 1.0],
+            [2.0, 2.0],
+            [1.0, 2.0],
+        ], dtype=np.float32)
+        self._draw_wedge(ax, alpha_min, alpha_max, radius, label='Wedge')
+        self._draw_polygon(ax, square, color='lightblue', alpha=0.3, label='Original')
+        result = clip_polygon_to_wedge(square, alpha_min, alpha_max, radius)
+        if result is not None:
+            self._draw_polygon(ax, result, color='blue', alpha=0.5, edgecolor='darkblue', label='Clipped')
+        ax.legend(loc='upper right')
+        
+        # Test case 2: Polygon fully outside wedge
+        ax = axes[1]
+        self._setup_axes(ax, "Fully Outside Wedge")
+        square = np.array([
+            [-3.0, -3.0],
+            [-2.0, -3.0],
+            [-2.0, -2.0],
+            [-3.0, -2.0],
+        ], dtype=np.float32)
+        self._draw_wedge(ax, alpha_min, alpha_max, radius, label='Wedge')
+        self._draw_polygon(ax, square, color='lightblue', alpha=0.3, label='Original')
+        result = clip_polygon_to_wedge(square, alpha_min, alpha_max, radius)
+        if result is None:
+            ax.annotate('Result: None (outside)', xy=(0, -1), fontsize=10, 
+                       ha='center', color='red', fontweight='bold')
+        ax.legend(loc='upper right')
+        
+        # Test case 3: Partial clipping
+        ax = axes[2]
+        self._setup_axes(ax, "Partial Wedge Clipping")
+        square = np.array([
+            [0.5, 0.5],
+            [3.5, 0.5],
+            [3.5, 3.5],
+            [0.5, 3.5],
+        ], dtype=np.float32)
+        self._draw_wedge(ax, alpha_min, alpha_max, radius, label='Wedge')
+        self._draw_polygon(ax, square, color='lightblue', alpha=0.3, label='Original')
+        result = clip_polygon_to_wedge(square, alpha_min, alpha_max, radius)
+        if result is not None:
+            self._draw_polygon(ax, result, color='green', alpha=0.5, edgecolor='darkgreen', label='Clipped')
+        ax.legend(loc='upper right')
+        
+        fig.suptitle("Wedge Clipping: Basic Scenarios", fontsize=14, fontweight='bold')
+        plt.tight_layout()
+        save_figure(fig, "wedge_clip_basic")
+
+    def test_visual_wedge_clip_fov_angles(self):
+        """Visual: Wedge clipping with different FOV angles."""
+        fig, axes = plt.subplots(2, 3, figsize=(15, 10))
+        
+        radius = 4.0
+        # Large polygon to clip
+        polygon = np.array([
+            [-3.0, -3.0],
+            [4.0, -3.0],
+            [4.0, 4.0],
+            [-3.0, 4.0],
+        ], dtype=np.float32)
+        
+        fov_configs = [
+            (np.radians(-15), np.radians(15), "30° FOV (narrow)"),
+            (np.radians(-30), np.radians(30), "60° FOV"),
+            (np.radians(-45), np.radians(45), "90° FOV"),
+            (np.radians(-60), np.radians(60), "120° FOV (wide)"),
+            (np.radians(0), np.radians(90), "90° FOV (first quadrant)"),
+            (np.radians(45), np.radians(135), "90° FOV (upper quadrant)"),
+        ]
+        
+        for ax, (alpha_min, alpha_max, title) in zip(axes.flat, fov_configs):
+            self._setup_axes(ax, title)
+            self._draw_wedge(ax, alpha_min, alpha_max, radius, label='Wedge')
+            self._draw_polygon(ax, polygon, color='lightblue', alpha=0.2, label='Original')
+            result = clip_polygon_to_wedge(polygon, alpha_min, alpha_max, radius)
+            if result is not None:
+                self._draw_polygon(ax, result, color='blue', alpha=0.5, edgecolor='darkblue', label='Clipped')
+            else:
+                ax.annotate('Result: None', xy=(0, 0), fontsize=10, 
+                           ha='center', color='red', fontweight='bold')
+            ax.legend(loc='upper right', fontsize=8)
+        
+        fig.suptitle("Wedge Clipping: Various Field of View Angles", fontsize=14, fontweight='bold')
+        plt.tight_layout()
+        save_figure(fig, "wedge_clip_fov_angles")
+
+    def test_visual_wedge_clip_pipeline_steps(self):
+        """Visual: Step-by-step wedge clipping pipeline."""
+        fig, axes = plt.subplots(2, 2, figsize=(12, 12))
+        
+        alpha_min = np.radians(30)
+        alpha_max = np.radians(75)
+        radius = 3.5
+        
+        # Large polygon
+        polygon = np.array([
+            [-2.0, -2.0],
+            [5.0, -2.0],
+            [5.0, 5.0],
+            [-2.0, 5.0],
+        ], dtype=np.float32)
+        
+        # Step 0: Original
+        ax = axes[0, 0]
+        self._setup_axes(ax, "Step 0: Original Polygon")
+        self._draw_wedge(ax, alpha_min, alpha_max, radius, alpha=0.05, label='Target wedge')
+        self._draw_polygon(ax, polygon, color='lightblue', alpha=0.5, label='Original')
+        ax.legend(loc='upper right')
+        
+        # Step 1: After alpha_min half-plane clip
+        ax = axes[0, 1]
+        self._setup_axes(ax, f"Step 1: Clip at α_min = {np.degrees(alpha_min):.0f}°")
+        step1 = clip_polygon_halfplane(polygon, plane_angle=alpha_min, keep_left=True)
+        # Draw half-plane boundary
+        x_end = 5 * np.cos(alpha_min)
+        y_end = 5 * np.sin(alpha_min)
+        ax.plot([0, x_end], [0, y_end], 'r-', linewidth=2, label='α_min boundary')
+        ax.fill([0, x_end, x_end, 0], [0, y_end, -5, -5], alpha=0.1, color='red')
+        self._draw_polygon(ax, polygon, color='lightblue', alpha=0.2)
+        self._draw_polygon(ax, step1, color='blue', alpha=0.5, edgecolor='darkblue', label='After clip 1')
+        ax.legend(loc='upper right')
+        
+        # Step 2: After alpha_max half-plane clip
+        ax = axes[1, 0]
+        self._setup_axes(ax, f"Step 2: Clip at α_max = {np.degrees(alpha_max):.0f}°")
+        step2 = clip_polygon_halfplane(step1, plane_angle=alpha_max, keep_left=False)
+        # Draw half-plane boundary
+        x_end = 5 * np.cos(alpha_max)
+        y_end = 5 * np.sin(alpha_max)
+        ax.plot([0, x_end], [0, y_end], 'g-', linewidth=2, label='α_max boundary')
+        ax.fill([0, x_end, -5, -5], [0, y_end, 5, 0], alpha=0.1, color='green')
+        self._draw_polygon(ax, step1, color='lightblue', alpha=0.2)
+        self._draw_polygon(ax, step2, color='orange', alpha=0.5, edgecolor='darkorange', label='After clip 2')
+        ax.legend(loc='upper right')
+        
+        # Step 3: After circle clip (final result)
+        ax = axes[1, 1]
+        self._setup_axes(ax, f"Step 3: Circle clip at r = {radius}")
+        from view_arc.clipping import clip_polygon_circle
+        step3 = clip_polygon_circle(step2, radius)
+        circle = plt.Circle((0, 0), radius, fill=False, 
+                            edgecolor='purple', linewidth=2, linestyle='--',
+                            label=f'Circle r={radius}')
+        ax.add_patch(circle)
+        self._draw_polygon(ax, step2, color='lightblue', alpha=0.2)
+        self._draw_polygon(ax, step3, color='purple', alpha=0.5, edgecolor='darkviolet', label='Final result')
+        ax.legend(loc='upper right')
+        
+        fig.suptitle("Wedge Clipping Pipeline: Step by Step", fontsize=14, fontweight='bold')
+        plt.tight_layout()
+        save_figure(fig, "wedge_clip_pipeline_steps")
+
+    def test_visual_wedge_clip_complex_polygons(self):
+        """Visual: Wedge clipping with complex polygon shapes."""
+        fig, axes = plt.subplots(2, 3, figsize=(15, 10))
+        
+        alpha_min = np.radians(15)
+        alpha_max = np.radians(75)
+        radius = 4.0
+        
+        # Triangle
+        ax = axes[0, 0]
+        self._setup_axes(ax, "Triangle in Wedge")
+        triangle = np.array([
+            [0.5, 0.5],
+            [4.0, 0.5],
+            [2.0, 4.0],
+        ], dtype=np.float32)
+        self._draw_wedge(ax, alpha_min, alpha_max, radius, label='Wedge')
+        self._draw_polygon(ax, triangle, color='lightblue', alpha=0.3, label='Original')
+        result = clip_polygon_to_wedge(triangle, alpha_min, alpha_max, radius)
+        if result is not None:
+            self._draw_polygon(ax, result, color='blue', alpha=0.5, edgecolor='darkblue', label='Clipped')
+        ax.legend(loc='upper right')
+        
+        # Pentagon
+        ax = axes[0, 1]
+        self._setup_axes(ax, "Pentagon in Wedge")
+        angles = np.linspace(0, 2*np.pi, 6)[:-1] + np.pi/10
+        pentagon = np.array([[3*np.cos(a)+1, 3*np.sin(a)+1] for a in angles], dtype=np.float32)
+        self._draw_wedge(ax, alpha_min, alpha_max, radius, label='Wedge')
+        self._draw_polygon(ax, pentagon, color='lightblue', alpha=0.3, label='Original')
+        result = clip_polygon_to_wedge(pentagon, alpha_min, alpha_max, radius)
+        if result is not None:
+            self._draw_polygon(ax, result, color='green', alpha=0.5, edgecolor='darkgreen', label='Clipped')
+        ax.legend(loc='upper right')
+        
+        # L-shaped polygon
+        ax = axes[0, 2]
+        self._setup_axes(ax, "L-shape in Wedge")
+        l_shape = np.array([
+            [0.5, 0.5],
+            [3.0, 0.5],
+            [3.0, 1.5],
+            [1.5, 1.5],
+            [1.5, 3.5],
+            [0.5, 3.5],
+        ], dtype=np.float32)
+        self._draw_wedge(ax, alpha_min, alpha_max, radius, label='Wedge')
+        self._draw_polygon(ax, l_shape, color='lightblue', alpha=0.3, label='Original')
+        result = clip_polygon_to_wedge(l_shape, alpha_min, alpha_max, radius)
+        if result is not None:
+            self._draw_polygon(ax, result, color='orange', alpha=0.5, edgecolor='darkorange', label='Clipped')
+        ax.legend(loc='upper right')
+        
+        # Cross-shaped polygon spanning wedge
+        ax = axes[1, 0]
+        self._setup_axes(ax, "Cross in Wedge")
+        cross = np.array([
+            [1.0, 0.0],
+            [2.0, 0.0],
+            [2.0, 1.0],
+            [3.0, 1.0],
+            [3.0, 2.0],
+            [2.0, 2.0],
+            [2.0, 3.0],
+            [1.0, 3.0],
+            [1.0, 2.0],
+            [0.0, 2.0],
+            [0.0, 1.0],
+            [1.0, 1.0],
+        ], dtype=np.float32)
+        self._draw_wedge(ax, alpha_min, alpha_max, radius, label='Wedge')
+        self._draw_polygon(ax, cross, color='lightblue', alpha=0.3, label='Original')
+        result = clip_polygon_to_wedge(cross, alpha_min, alpha_max, radius)
+        if result is not None:
+            self._draw_polygon(ax, result, color='purple', alpha=0.5, edgecolor='darkviolet', label='Clipped')
+        ax.legend(loc='upper right')
+        
+        # Obstacle extending far beyond radius
+        ax = axes[1, 1]
+        self._setup_axes(ax, "Large Obstacle Clipped", xlim=(-2, 8), ylim=(-2, 8))
+        large = np.array([
+            [1.0, 0.5],
+            [7.0, 0.5],
+            [7.0, 7.0],
+            [1.0, 7.0],
+        ], dtype=np.float32)
+        self._draw_wedge(ax, alpha_min, alpha_max, radius, label='Wedge')
+        self._draw_polygon(ax, large, color='lightblue', alpha=0.3, label='Original')
+        result = clip_polygon_to_wedge(large, alpha_min, alpha_max, radius)
+        if result is not None:
+            self._draw_polygon(ax, result, color='teal', alpha=0.5, edgecolor='darkcyan', label='Clipped')
+        ax.legend(loc='upper right')
+        
+        # Multiple small obstacles
+        ax = axes[1, 2]
+        self._setup_axes(ax, "Narrow Wedge Clipping")
+        narrow_min = np.radians(40)
+        narrow_max = np.radians(50)
+        polygon = np.array([
+            [1.0, 0.5],
+            [3.0, 0.5],
+            [3.0, 2.5],
+            [1.0, 2.5],
+        ], dtype=np.float32)
+        self._draw_wedge(ax, narrow_min, narrow_max, radius, label='Narrow wedge')
+        self._draw_polygon(ax, polygon, color='lightblue', alpha=0.3, label='Original')
+        result = clip_polygon_to_wedge(polygon, narrow_min, narrow_max, radius)
+        if result is not None:
+            self._draw_polygon(ax, result, color='coral', alpha=0.5, edgecolor='orangered', label='Clipped')
+        else:
+            ax.annotate('Result: None', xy=(2, 1.5), fontsize=10, ha='center', color='red')
+        ax.legend(loc='upper right')
+        
+        fig.suptitle("Wedge Clipping: Complex Polygon Shapes", fontsize=14, fontweight='bold')
+        plt.tight_layout()
+        save_figure(fig, "wedge_clip_complex_polygons")
+
+    def test_visual_wedge_realistic_scenario(self):
+        """Visual: Realistic obstacle detection scenario."""
+        fig, ax = plt.subplots(figsize=(10, 10))
+        
+        self._setup_axes(ax, "Realistic Scenario: Viewer with Obstacles", xlim=(-6, 6), ylim=(-6, 6))
+        
+        # Viewer FOV: looking roughly at +X direction with 90° FOV
+        alpha_min = np.radians(-45)
+        alpha_max = np.radians(45)
+        radius = 5.0
+        
+        # Draw the wedge (viewer's field of view)
+        self._draw_wedge(ax, alpha_min, alpha_max, radius, color='green', alpha=0.1, label='Field of View')
+        self._draw_wedge_boundaries(ax, alpha_min, alpha_max, radius, color='green')
+        
+        # Various obstacles
+        obstacles = [
+            # Obstacle 1: Fully in FOV
+            np.array([[2.0, -0.5], [3.0, -0.5], [3.0, 0.5], [2.0, 0.5]], dtype=np.float32),
+            # Obstacle 2: Partially in FOV (extends beyond radius)
+            np.array([[3.0, 1.0], [6.0, 1.0], [6.0, 2.0], [3.0, 2.0]], dtype=np.float32),
+            # Obstacle 3: Partially in FOV (extends beyond angle)
+            np.array([[1.0, 2.0], [2.0, 2.0], [2.0, 4.0], [1.0, 4.0]], dtype=np.float32),
+            # Obstacle 4: Outside FOV
+            np.array([[-3.0, 1.0], [-2.0, 1.0], [-2.0, 2.0], [-3.0, 2.0]], dtype=np.float32),
+            # Obstacle 5: At edge of FOV
+            np.array([[1.5, -2.0], [2.5, -2.0], [2.5, -1.0], [1.5, -1.0]], dtype=np.float32),
+        ]
+        
+        colors = ['blue', 'orange', 'purple', 'gray', 'teal']
+        
+        for i, (obs, color) in enumerate(zip(obstacles, colors)):
+            # Draw original
+            self._draw_polygon(ax, obs, color=color, alpha=0.2, edgecolor=color)
+            
+            # Clip and draw result
+            result = clip_polygon_to_wedge(obs, alpha_min, alpha_max, radius)
+            if result is not None:
+                self._draw_polygon(ax, result, color=color, alpha=0.6, 
+                                  edgecolor='black', label=f'Obstacle {i+1} (visible)')
+            else:
+                # Mark center of original as not visible
+                center = obs.mean(axis=0)
+                ax.plot(center[0], center[1], 'x', color=color, markersize=10)
+        
+        # Draw viewer position and direction
+        ax.annotate('Viewer', xy=(0, -0.5), fontsize=12, ha='center', fontweight='bold')
+        ax.arrow(0, 0, 1.5, 0, head_width=0.2, head_length=0.1, fc='black', ec='black')
+        
+        ax.legend(loc='upper left', fontsize=9)
+        
+        plt.tight_layout()
+        save_figure(fig, "wedge_realistic_scenario")

@@ -19,8 +19,8 @@ def clip_polygon_to_wedge(
     Clip polygon against circular sector wedge.
     
     Applies three clipping stages:
-    1. Half-plane at alpha_min
-    2. Half-plane at alpha_max  
+    1. Half-plane at alpha_min (keep left/CCW side)
+    2. Half-plane at alpha_max (keep right/CW side)
     3. Circle at radius max_range
     
     Parameters:
@@ -33,7 +33,25 @@ def clip_polygon_to_wedge(
         Clipped polygon vertices (M, 2) or None if completely clipped away
         Returns None for degenerate results (<3 vertices)
     """
-    raise NotImplementedError
+    if not is_valid_polygon(polygon):
+        return None
+    
+    # Stage 1: Clip by half-plane at alpha_min (keep left = CCW from alpha_min ray)
+    result = clip_polygon_halfplane(polygon, plane_angle=alpha_min, keep_left=True)
+    if result.shape[0] < 3:
+        return None
+    
+    # Stage 2: Clip by half-plane at alpha_max (keep right = CW from alpha_max ray)
+    result = clip_polygon_halfplane(result, plane_angle=alpha_max, keep_left=False)
+    if result.shape[0] < 3:
+        return None
+    
+    # Stage 3: Clip by circle at max_range
+    result = clip_polygon_circle(result, radius=max_range)
+    if result.shape[0] < 3:
+        return None
+    
+    return result
 
 
 def clip_polygon_halfplane(
@@ -136,7 +154,94 @@ def clip_polygon_circle(
     Returns:
         Clipped polygon vertices (M, 2), may be empty array
     """
-    raise NotImplementedError
+    if polygon.shape[0] == 0:
+        return polygon.copy()
+    
+    radius_sq = radius * radius
+    output_vertices: List[NDArray[np.float32]] = []
+    n = polygon.shape[0]
+    
+    def is_inside(point: NDArray[np.float32]) -> bool:
+        """Check if point is inside or on the circle."""
+        return float(np.dot(point, point)) <= radius_sq + HALFPLANE_EPSILON
+    
+    def compute_circle_intersections(
+        p1: NDArray[np.float32], 
+        p2: NDArray[np.float32]
+    ) -> List[tuple[float, NDArray[np.float32]]]:
+        """
+        Compute intersection points of line segment p1->p2 with circle.
+        
+        Uses parametric line equation: P(t) = p1 + t*(p2-p1), t in [0,1]
+        Substituted into circle equation: |P(t)|^2 = r^2
+        Results in quadratic: at^2 + bt + c = 0
+        
+        Returns list of (t, point) tuples for valid intersections.
+        """
+        d = p2 - p1  # Direction vector
+        
+        # Quadratic coefficients for |p1 + t*d|^2 = r^2
+        # (p1 + t*d) · (p1 + t*d) = r^2
+        # p1·p1 + 2t(p1·d) + t^2(d·d) = r^2
+        # (d·d)t^2 + 2(p1·d)t + (p1·p1 - r^2) = 0
+        a = float(np.dot(d, d))
+        b = 2.0 * float(np.dot(p1, d))
+        c = float(np.dot(p1, p1)) - radius_sq
+        
+        discriminant = b * b - 4.0 * a * c
+        
+        if discriminant < 0 or a < 1e-12:
+            return []
+        
+        sqrt_disc = np.sqrt(discriminant)
+        t1 = (-b - sqrt_disc) / (2.0 * a)
+        t2 = (-b + sqrt_disc) / (2.0 * a)
+        
+        intersections = []
+        for t in [t1, t2]:
+            if 0.0 <= t <= 1.0:
+                point = (p1 + t * d).astype(np.float32)
+                intersections.append((t, point))
+        
+        # Sort by t parameter
+        intersections.sort(key=lambda x: x[0])
+        return intersections
+    
+    for i in range(n):
+        current = polygon[i]
+        next_vertex = polygon[(i + 1) % n]
+        
+        current_inside = is_inside(current)
+        next_inside = is_inside(next_vertex)
+        
+        if current_inside:
+            # Current vertex is inside, add it
+            output_vertices.append(current.copy())
+        
+        # Find intersections along the edge
+        intersections = compute_circle_intersections(current, next_vertex)
+        
+        if current_inside and not next_inside:
+            # Edge exits the circle - add the exit intersection
+            if intersections:
+                # Take the first intersection (closest to current)
+                output_vertices.append(intersections[0][1])
+        elif not current_inside and next_inside:
+            # Edge enters the circle - add the entry intersection
+            if intersections:
+                # Take the last intersection (closest to next)
+                output_vertices.append(intersections[-1][1])
+        elif not current_inside and not next_inside:
+            # Both outside - check if edge passes through circle
+            if len(intersections) == 2:
+                # Edge crosses circle twice (enters and exits)
+                output_vertices.append(intersections[0][1])
+                output_vertices.append(intersections[1][1])
+    
+    if len(output_vertices) == 0:
+        return np.array([], dtype=np.float32).reshape(0, 2)
+    
+    return np.array(output_vertices, dtype=np.float32)
 
 
 def is_valid_polygon(polygon: NDArray[np.float32]) -> bool:

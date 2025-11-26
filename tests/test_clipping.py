@@ -19,6 +19,8 @@ from view_arc.clipping import (
     is_valid_polygon,
     compute_bounding_box,
     clip_polygon_halfplane,
+    clip_polygon_circle,
+    clip_polygon_to_wedge,
 )
 
 
@@ -369,3 +371,322 @@ class TestClipPolygonHalfplane:
         bottom_vertices = result[result[:, 1] < 0.0]
         assert bottom_vertices.shape[0] == 2
         assert np.allclose(bottom_vertices[:, 1], -eps, atol=1e-6)
+
+
+# =============================================================================
+# Step 2.2: Circle and Wedge Clipping Tests
+# =============================================================================
+
+class TestClipPolygonCircle:
+    """Tests for clip_polygon_circle() function."""
+    
+    def test_clip_circle_fully_inside(self):
+        """Polygon entirely within the circle - no clipping needed."""
+        # Small square inside a circle of radius 5
+        square = np.array([
+            [1.0, 1.0],
+            [2.0, 1.0],
+            [2.0, 2.0],
+            [1.0, 2.0],
+        ], dtype=np.float32)
+        
+        result = clip_polygon_circle(square, radius=5.0)
+        
+        # All vertices should be preserved
+        assert result.shape[0] == 4
+        assert_array_almost_equal(result, square)
+    
+    def test_clip_circle_fully_outside(self):
+        """Polygon entirely outside the circle - complete removal."""
+        # Square far from origin
+        square = np.array([
+            [10.0, 10.0],
+            [12.0, 10.0],
+            [12.0, 12.0],
+            [10.0, 12.0],
+        ], dtype=np.float32)
+        
+        result = clip_polygon_circle(square, radius=5.0)
+        
+        # All vertices should be clipped
+        assert result.shape[0] == 0
+    
+    def test_clip_circle_partial(self):
+        """Polygon partially inside - some vertices beyond radius."""
+        # Square centered at origin extending beyond radius
+        square = np.array([
+            [-1.0, -1.0],
+            [1.0, -1.0],
+            [1.0, 1.0],
+            [-1.0, 1.0],
+        ], dtype=np.float32)
+        
+        # Small radius that cuts through the square
+        result = clip_polygon_circle(square, radius=1.2)
+        
+        # Result should have more vertices due to intersections
+        assert result.shape[0] >= 4
+        
+        # All resulting vertices should be within or on the circle
+        distances = np.sqrt(result[:, 0]**2 + result[:, 1]**2)
+        assert np.all(distances <= 1.2 + 1e-5)
+    
+    def test_clip_circle_edge_intersections(self):
+        """Verify intersection points are computed accurately."""
+        # Triangle with vertices at different distances from origin
+        triangle = np.array([
+            [0.0, 0.0],   # Inside (at origin)
+            [3.0, 0.0],   # Outside (distance 3)
+            [0.0, 3.0],   # Outside (distance 3)
+        ], dtype=np.float32)
+        
+        result = clip_polygon_circle(triangle, radius=2.0)
+        
+        # Origin should be preserved
+        assert any(np.allclose(v, [0.0, 0.0], atol=1e-5) for v in result)
+        
+        # Should have intersection points at distance 2
+        distances = np.sqrt(result[:, 0]**2 + result[:, 1]**2)
+        
+        # Check that some points are exactly on the circle (within tolerance)
+        on_circle = np.abs(distances - 2.0) < 1e-5
+        assert np.sum(on_circle) >= 2  # At least 2 intersection points
+    
+    def test_clip_circle_degenerate_to_point(self):
+        """Handle edge case where polygon degenerates to a point."""
+        # Very small triangle at origin
+        tiny_triangle = np.array([
+            [0.0, 0.0],
+            [0.001, 0.0],
+            [0.0, 0.001],
+        ], dtype=np.float32)
+        
+        # Clip with very small radius - should still work
+        result = clip_polygon_circle(tiny_triangle, radius=0.01)
+        
+        # Should preserve the tiny triangle
+        assert result.shape[0] >= 3
+    
+    def test_clip_circle_vertex_on_boundary(self):
+        """Test when a vertex lies exactly on the circle boundary."""
+        # Triangle with one vertex exactly on the circle
+        triangle = np.array([
+            [0.0, 0.0],   # Inside
+            [5.0, 0.0],   # On boundary (radius=5)
+            [0.0, 3.0],   # Inside
+        ], dtype=np.float32)
+        
+        result = clip_polygon_circle(triangle, radius=5.0)
+        
+        # All vertices should be preserved
+        assert result.shape[0] == 3
+        assert any(np.allclose(v, [5.0, 0.0], atol=1e-5) for v in result)
+    
+    def test_clip_circle_empty_input(self):
+        """Empty polygon input should return empty output."""
+        empty = np.array([], dtype=np.float32).reshape(0, 2)
+        
+        result = clip_polygon_circle(empty, radius=5.0)
+        
+        assert result.shape == (0, 2)
+    
+    def test_clip_circle_edge_passes_through(self):
+        """Test when an edge passes through the circle but both endpoints are outside."""
+        # Rectangle with endpoints outside but edge crossing through origin area
+        rectangle = np.array([
+            [-5.0, -1.0],
+            [5.0, -1.0],
+            [5.0, 1.0],
+            [-5.0, 1.0],
+        ], dtype=np.float32)
+        
+        result = clip_polygon_circle(rectangle, radius=2.0)
+        
+        # Should have intersection points
+        assert result.shape[0] >= 4
+        
+        # All points should be within the circle
+        distances = np.sqrt(result[:, 0]**2 + result[:, 1]**2)
+        assert np.all(distances <= 2.0 + 1e-5)
+
+
+class TestClipPolygonToWedge:
+    """Tests for clip_polygon_to_wedge() function."""
+    
+    def test_clip_wedge_full_pipeline(self):
+        """Integration test of the 3-stage clipping pipeline."""
+        # Square in first quadrant
+        square = np.array([
+            [1.0, 1.0],
+            [3.0, 1.0],
+            [3.0, 3.0],
+            [1.0, 3.0],
+        ], dtype=np.float32)
+        
+        # Wedge from 0° to 90° (first quadrant) with radius 5
+        alpha_min = 0.0
+        alpha_max = np.pi / 2
+        max_range = 5.0
+        
+        result = clip_polygon_to_wedge(square, alpha_min, alpha_max, max_range)
+        
+        # Square is entirely in the wedge, should be preserved
+        assert result is not None
+        assert result.shape[0] == 4
+        assert_array_almost_equal(result, square)
+    
+    def test_clip_wedge_narrow_arc(self):
+        """Test with narrow 30° FOV."""
+        # Square spanning from 0° to 45° approximately
+        square = np.array([
+            [2.0, 0.5],
+            [3.0, 0.5],
+            [3.0, 1.5],
+            [2.0, 1.5],
+        ], dtype=np.float32)
+        
+        # Narrow wedge: 15° to 45° (30° FOV)
+        alpha_min = np.radians(15)
+        alpha_max = np.radians(45)
+        max_range = 5.0
+        
+        result = clip_polygon_to_wedge(square, alpha_min, alpha_max, max_range)
+        
+        # Should produce a valid clipped polygon
+        assert result is not None
+        assert result.shape[0] >= 3
+        
+        # All points should be in the wedge
+        distances = np.sqrt(result[:, 0]**2 + result[:, 1]**2)
+        angles = np.arctan2(result[:, 1], result[:, 0])
+        
+        assert np.all(distances <= max_range + 1e-5)
+        assert np.all(angles >= alpha_min - 1e-5)
+        assert np.all(angles <= alpha_max + 1e-5)
+    
+    def test_clip_wedge_wide_arc(self):
+        """Test with wide 120° FOV."""
+        # Square in first quadrant
+        square = np.array([
+            [1.0, 0.0],
+            [2.0, 0.0],
+            [2.0, 2.0],
+            [1.0, 2.0],
+        ], dtype=np.float32)
+        
+        # Wide wedge: -30° to 90° (120° FOV)
+        alpha_min = np.radians(-30)
+        alpha_max = np.radians(90)
+        max_range = 5.0
+        
+        result = clip_polygon_to_wedge(square, alpha_min, alpha_max, max_range)
+        
+        # Square should be mostly preserved (it's within the wedge)
+        assert result is not None
+        assert result.shape[0] >= 3
+    
+    def test_clip_wedge_returns_none_if_outside(self):
+        """Complete rejection when polygon is outside the wedge."""
+        # Square in third quadrant (negative x and y)
+        square = np.array([
+            [-3.0, -3.0],
+            [-2.0, -3.0],
+            [-2.0, -2.0],
+            [-3.0, -2.0],
+        ], dtype=np.float32)
+        
+        # Wedge in first quadrant: 0° to 90°
+        alpha_min = 0.0
+        alpha_max = np.pi / 2
+        max_range = 5.0
+        
+        result = clip_polygon_to_wedge(square, alpha_min, alpha_max, max_range)
+        
+        # Should be completely clipped away
+        assert result is None
+    
+    def test_clip_wedge_validates_result(self):
+        """Ensures ≥3 vertices for valid polygon."""
+        # Thin sliver that might clip to < 3 vertices
+        sliver = np.array([
+            [0.1, 0.0],
+            [0.2, 0.0],
+            [0.15, 0.05],
+        ], dtype=np.float32)
+        
+        # Wedge that mostly excludes this sliver
+        alpha_min = np.pi / 4
+        alpha_max = np.pi / 2
+        max_range = 5.0
+        
+        result = clip_polygon_to_wedge(sliver, alpha_min, alpha_max, max_range)
+        
+        # Result should either be None or have at least 3 vertices
+        if result is not None:
+            assert result.shape[0] >= 3
+    
+    def test_clip_wedge_with_circle_clipping(self):
+        """Test that circle clipping works in the pipeline."""
+        # Large square that extends beyond max_range
+        square = np.array([
+            [1.0, 1.0],
+            [10.0, 1.0],
+            [10.0, 10.0],
+            [1.0, 10.0],
+        ], dtype=np.float32)
+        
+        # Wedge with small radius
+        alpha_min = 0.0
+        alpha_max = np.pi / 2
+        max_range = 5.0
+        
+        result = clip_polygon_to_wedge(square, alpha_min, alpha_max, max_range)
+        
+        assert result is not None
+        
+        # All points should be within max_range
+        distances = np.sqrt(result[:, 0]**2 + result[:, 1]**2)
+        assert np.all(distances <= max_range + 1e-5)
+    
+    def test_clip_wedge_invalid_polygon_input(self):
+        """Invalid input polygons should return None."""
+        # Less than 3 vertices
+        line = np.array([
+            [1.0, 1.0],
+            [2.0, 2.0],
+        ], dtype=np.float32)
+        
+        result = clip_polygon_to_wedge(line, 0.0, np.pi/2, 5.0)
+        
+        assert result is None
+    
+    def test_clip_wedge_empty_polygon_input(self):
+        """Empty input polygon should return None."""
+        empty = np.array([], dtype=np.float32).reshape(0, 2)
+        
+        result = clip_polygon_to_wedge(empty, 0.0, np.pi/2, 5.0)
+        
+        assert result is None
+    
+    def test_clip_wedge_preserves_vertices_on_boundary(self):
+        """Vertices exactly on wedge boundaries should be preserved."""
+        # Triangle with vertices on wedge boundaries
+        triangle = np.array([
+            [1.0, 0.0],   # On alpha_min boundary (0°)
+            [0.0, 1.0],   # On alpha_max boundary (90°)
+            [0.5, 0.5],   # Inside wedge
+        ], dtype=np.float32)
+        
+        alpha_min = 0.0
+        alpha_max = np.pi / 2
+        max_range = 5.0
+        
+        result = clip_polygon_to_wedge(triangle, alpha_min, alpha_max, max_range)
+        
+        assert result is not None
+        assert result.shape[0] == 3
+        
+        # Check all original vertices are present
+        assert any(np.allclose(v, [1.0, 0.0], atol=1e-5) for v in result)
+        assert any(np.allclose(v, [0.0, 1.0], atol=1e-5) for v in result)
+        assert any(np.allclose(v, [0.5, 0.5], atol=1e-5) for v in result)
