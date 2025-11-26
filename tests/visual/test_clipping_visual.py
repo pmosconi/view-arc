@@ -252,7 +252,7 @@ class TestClippingVisual:
         ], dtype=np.float32)
         self._draw_polygon(ax, square, color='blue', alpha=0.3, label='Polygon')
         min_pt, max_pt = compute_bounding_box(square)
-        bbox_rect = mpatches.Rectangle(min_pt, max_pt[0]-min_pt[0], max_pt[1]-min_pt[1],
+        bbox_rect = mpatches.Rectangle(tuple(min_pt), max_pt[0]-min_pt[0], max_pt[1]-min_pt[1],
                                         fill=False, edgecolor='red', linewidth=2, 
                                         linestyle='--', label='AABB')
         ax.add_patch(bbox_rect)
@@ -270,7 +270,7 @@ class TestClippingVisual:
         ], dtype=np.float32)
         self._draw_polygon(ax, triangle, color='green', alpha=0.3, label='Polygon')
         min_pt, max_pt = compute_bounding_box(triangle)
-        bbox_rect = mpatches.Rectangle(min_pt, max_pt[0]-min_pt[0], max_pt[1]-min_pt[1],
+        bbox_rect = mpatches.Rectangle(tuple(min_pt), max_pt[0]-min_pt[0], max_pt[1]-min_pt[1],
                                         fill=False, edgecolor='red', linewidth=2, 
                                         linestyle='--', label='AABB')
         ax.add_patch(bbox_rect)
@@ -290,7 +290,7 @@ class TestClippingVisual:
         ], dtype=np.float32)
         self._draw_polygon(ax, polygon, color='purple', alpha=0.3, label='Polygon')
         min_pt, max_pt = compute_bounding_box(polygon)
-        bbox_rect = mpatches.Rectangle(min_pt, max_pt[0]-min_pt[0], max_pt[1]-min_pt[1],
+        bbox_rect = mpatches.Rectangle(tuple(min_pt), max_pt[0]-min_pt[0], max_pt[1]-min_pt[1],
                                         fill=False, edgecolor='red', linewidth=2, 
                                         linestyle='--', label='AABB')
         ax.add_patch(bbox_rect)
