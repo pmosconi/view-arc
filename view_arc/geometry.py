@@ -182,7 +182,7 @@ def handle_angle_discontinuity(
     
     If the arc crosses the discontinuity (alpha_max > alpha_min means no crossing,
     alpha_max < alpha_min means the arc wraps around ±π), adds 2π to angles 
-    below alpha_min to create a continuous range for sweep processing.
+    below alpha_max to create a continuous range for sweep processing.
     
     Parameters:
         angles: Array of angles in [-π, π)
