@@ -43,6 +43,7 @@ def clip_polygon_halfplane(
     Clip polygon against a half-plane defined by a ray from origin.
     
     Implements Sutherland-Hodgman algorithm for a single half-plane.
+    The half-plane is defined by a ray from the origin at the given angle.
     
     Parameters:
         polygon: Polygon vertices (N, 2)
@@ -52,7 +53,68 @@ def clip_polygon_halfplane(
     Returns:
         Clipped polygon vertices (M, 2), may be empty array
     """
-    raise NotImplementedError
+    if polygon.shape[0] == 0:
+        return polygon.copy()
+    
+    # Direction of the ray (unit vector at plane_angle)
+    ray_dir = np.array([np.cos(plane_angle), np.sin(plane_angle)], dtype=np.float32)
+    
+    # Normal to the ray: perpendicular pointing left (CCW)
+    # For ray direction (dx, dy), left normal is (-dy, dx)
+    normal = np.array([-ray_dir[1], ray_dir[0]], dtype=np.float32)
+    
+    if not keep_left:
+        # If keeping right side, flip the normal
+        normal = -normal
+    
+    def signed_distance(point: NDArray[np.float32]) -> float:
+        """Compute signed distance from point to the half-plane boundary."""
+        # Distance = dot(point, normal)
+        # Positive means on the "keep" side, negative means on the "clip" side
+        return float(np.dot(point, normal))
+    
+    def compute_intersection(p1: NDArray[np.float32], p2: NDArray[np.float32]) -> NDArray[np.float32]:
+        """Compute intersection of edge p1->p2 with the half-plane boundary."""
+        d1 = signed_distance(p1)
+        d2 = signed_distance(p2)
+        
+        # Parametric intersection: t where d1 + t*(d2-d1) = 0
+        t = d1 / (d1 - d2)
+        
+        return (p1 + t * (p2 - p1)).astype(np.float32)
+    
+    output_vertices = []
+    n = polygon.shape[0]
+    
+    for i in range(n):
+        current = polygon[i]
+        next_vertex = polygon[(i + 1) % n]
+        
+        d_current = signed_distance(current)
+        d_next = signed_distance(next_vertex)
+        
+        current_inside = d_current >= 0
+        next_inside = d_next >= 0
+        
+        if current_inside:
+            # Current vertex is inside, add it
+            output_vertices.append(current.copy())
+            
+            if not next_inside:
+                # Edge exits the half-plane, add intersection point
+                intersection = compute_intersection(current, next_vertex)
+                output_vertices.append(intersection)
+        else:
+            # Current vertex is outside
+            if next_inside:
+                # Edge enters the half-plane, add intersection point
+                intersection = compute_intersection(current, next_vertex)
+                output_vertices.append(intersection)
+    
+    if len(output_vertices) == 0:
+        return np.array([], dtype=np.float32).reshape(0, 2)
+    
+    return np.array(output_vertices, dtype=np.float32)
 
 
 def clip_polygon_circle(
@@ -84,7 +146,7 @@ def is_valid_polygon(polygon: NDArray[np.float32]) -> bool:
     Returns:
         True if polygon has at least 3 vertices
     """
-    raise NotImplementedError
+    return polygon.shape[0] >= 3
 
 
 def compute_bounding_box(
@@ -99,4 +161,6 @@ def compute_bounding_box(
     Returns:
         Tuple of (min_point, max_point), each shape (2,)
     """
-    raise NotImplementedError
+    min_point = np.min(polygon, axis=0).astype(np.float32)
+    max_point = np.max(polygon, axis=0).astype(np.float32)
+    return min_point, max_point
