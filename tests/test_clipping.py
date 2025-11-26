@@ -144,6 +144,13 @@ class TestComputeBoundingBox:
         assert min_pt.dtype == np.float32
         assert max_pt.dtype == np.float32
 
+    def test_compute_bounding_box_empty_polygon_error(self):
+        """Empty polygons should raise a clear error instead of np.min failure."""
+        empty = np.array([], dtype=np.float32).reshape(0, 2)
+
+        with pytest.raises(ValueError, match="at least one vertex"):
+            compute_bounding_box(empty)
+
 
 class TestClipPolygonHalfplane:
     """Tests for clip_polygon_halfplane() function."""
@@ -343,3 +350,22 @@ class TestClipPolygonHalfplane:
         # All vertices should be kept (boundary is included with >= 0)
         assert result.shape[0] == 3
         assert any(np.allclose(v, [1.0, 0.0]) for v in result)
+
+    def test_clip_halfplane_preserves_boundary_edge_with_tolerance(self):
+        """Entire edges infinitesimally below boundary remain after tolerance handling."""
+        eps = np.float32(5e-7)
+        polygon = np.array([
+            [-1.5, -eps],
+            [1.5, -eps],
+            [1.5, 1.0],
+            [-1.5, 1.0],
+        ], dtype=np.float32)
+
+        result = clip_polygon_halfplane(polygon, plane_angle=0.0, keep_left=True)
+
+        # Polygon should be preserved (no extra vertices introduced)
+        assert result.shape[0] == 4
+        # Bottom edge should still be present within the tolerance band
+        bottom_vertices = result[result[:, 1] < 0.0]
+        assert bottom_vertices.shape[0] == 2
+        assert np.allclose(bottom_vertices[:, 1], -eps, atol=1e-6)

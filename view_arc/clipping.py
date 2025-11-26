@@ -6,6 +6,8 @@ from typing import List, Optional
 import numpy as np
 from numpy.typing import NDArray
 
+HALFPLANE_EPSILON = 1e-6
+
 
 def clip_polygon_to_wedge(
     polygon: NDArray[np.float32],
@@ -83,6 +85,7 @@ def clip_polygon_halfplane(
         
         return (p1 + t * (p2 - p1)).astype(np.float32)
     
+    tolerance = float(HALFPLANE_EPSILON)
     output_vertices = []
     n = polygon.shape[0]
     
@@ -93,8 +96,8 @@ def clip_polygon_halfplane(
         d_current = signed_distance(current)
         d_next = signed_distance(next_vertex)
         
-        current_inside = d_current >= 0
-        next_inside = d_next >= 0
+        current_inside = d_current >= -tolerance
+        next_inside = d_next >= -tolerance
         
         if current_inside:
             # Current vertex is inside, add it
@@ -161,6 +164,8 @@ def compute_bounding_box(
     Returns:
         Tuple of (min_point, max_point), each shape (2,)
     """
+    if polygon.shape[0] == 0:
+        raise ValueError("polygon must contain at least one vertex")
     min_point = np.min(polygon, axis=0).astype(np.float32)
     max_point = np.max(polygon, axis=0).astype(np.float32)
     return min_point, max_point
