@@ -46,11 +46,13 @@ class IntervalResult:
         min_distance: Minimum distance found in this interval
         angle_start: Start angle of interval
         angle_end: End angle of interval
+        wraps: Whether the interval crosses the ±π discontinuity
     """
     obstacle_id: int
     min_distance: float
     angle_start: float
     angle_end: float
+    wraps: bool = False
 
 
 def build_events(
@@ -207,7 +209,7 @@ def resolve_interval(
     
     Parameters:
         interval_start: Start angle of interval
-        interval_end: End angle of interval
+        interval_end: End angle of interval (may be > interval_start even across ±π)
         active_obstacles: Dict mapping obstacle_id to its edges array
                          Each edges array has shape (M, 2, 2) for M segments
         num_samples: Number of rays to sample across interval
@@ -231,10 +233,13 @@ def resolve_interval(
     
     # Generate sample angles within the interval (evenly distributed)
     # Always includes both endpoints (interval_start and interval_end)
-    sample_angles = [
-        interval_start + i * angular_span / (actual_samples - 1)
-        for i in range(actual_samples)
-    ]
+    # Normalize angles to [-π, π) for ray intersection tests
+    sample_angles = []
+    for i in range(actual_samples):
+        raw_angle = interval_start + i * angular_span / (actual_samples - 1)
+        # Normalize to [-π, π) for proper ray intersection
+        normalized = normalize_angle(raw_angle)
+        sample_angles.append(normalized)
     
     # For each sample ray, find the closest obstacle
     # Track: obstacle_id -> list of distances where it was closest
@@ -348,7 +353,7 @@ def compute_coverage(
         Tuple of (coverage_dict, min_distance_dict, intervals) where:
             coverage_dict: Maps obstacle_id to total angular coverage (radians)
             min_distance_dict: Maps obstacle_id to minimum distance encountered
-            intervals: List of IntervalResult for detailed analysis
+            intervals: List of IntervalResult with angles normalized to [-π, π)
     """
     # Initialize result accumulators
     coverage_dict: Dict[int, float] = {}
@@ -359,6 +364,7 @@ def compute_coverage(
     arc_wraps = alpha_min > alpha_max
     
     # Compute remapped boundary angles
+    # When arc wraps, lift alpha_max by 2π so we work in a continuous space
     remapped_alpha_min = alpha_min
     remapped_alpha_max = alpha_max + 2 * np.pi if arc_wraps else alpha_max
     
@@ -386,14 +392,15 @@ def compute_coverage(
         if interval_end - interval_start < 1e-10:
             continue
         
+        # The angular span in remapped space (always positive)
+        angular_span = interval_end - interval_start
+        
         # Find active obstacles at the midpoint of this interval
-        # Use original angles for edge intersection checks
+        # Use normalized angle for edge intersection checks
         midpoint = (interval_start + interval_end) / 2
         
-        # Convert midpoint back to original angle space if arc wraps
-        query_angle = midpoint
-        if arc_wraps and midpoint > np.pi:
-            query_angle = midpoint - 2 * np.pi
+        # Convert midpoint back to original angle space [-π, π) for ray intersection
+        query_angle = normalize_angle(midpoint)
         
         # Determine active obstacles for this interval
         active_obstacles: Dict[int, NDArray[np.float32]] = {}
@@ -408,25 +415,17 @@ def compute_coverage(
         
         # Resolve this interval to find the winner
         if active_obstacles:
-            # Convert interval to original angle space for resolve_interval
-            query_start = interval_start
-            query_end = interval_end
-            if arc_wraps:
-                if query_start > np.pi:
-                    query_start -= 2 * np.pi
-                if query_end > np.pi:
-                    query_end -= 2 * np.pi
-            
+            # Pass the remapped interval to resolve_interval
+            # It will handle the normalization of sample angles internally
             result = resolve_interval(
-                interval_start=query_start,
-                interval_end=query_end,
+                interval_start=interval_start,
+                interval_end=interval_end,
                 active_obstacles=active_obstacles,
                 num_samples=5
             )
             
             if result is not None:
                 # Update coverage for the winning obstacle
-                angular_span = interval_end - interval_start
                 if result.obstacle_id not in coverage_dict:
                     coverage_dict[result.obstacle_id] = 0.0
                 coverage_dict[result.obstacle_id] += angular_span
@@ -437,12 +436,18 @@ def compute_coverage(
                 if result.min_distance < min_distance_dict[result.obstacle_id]:
                     min_distance_dict[result.obstacle_id] = result.min_distance
                 
-                # Store interval result with remapped angles for consistency
+                # Store interval result with normalized angles in [-π, π)
+                # Preserve whether the interval crosses the ±π discontinuity
+                normalized_start = normalize_angle(interval_start)
+                normalized_end = normalize_angle(interval_end)
+                wraps = bool(normalized_end < normalized_start)
+                
                 intervals.append(IntervalResult(
                     obstacle_id=result.obstacle_id,
                     min_distance=result.min_distance,
-                    angle_start=interval_start,
-                    angle_end=interval_end
+                    angle_start=normalized_start,
+                    angle_end=normalized_end,
+                    wraps=wraps
                 ))
     
     return coverage_dict, min_distance_dict, intervals

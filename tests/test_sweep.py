@@ -1170,23 +1170,36 @@ class TestComputeCoverage:
             assert isinstance(interval, IntervalResult)
             assert interval.obstacle_id == 0
             assert interval.min_distance > 0
+            assert interval.wraps is False
             
     def test_compute_coverage_arc_crossing_pi(self):
-        """Test coverage computation when arc crosses ±π boundary."""
-        # Obstacle in the region near ±π
+        """Test coverage computation when arc crosses ±π boundary.
+        
+        This is a critical regression test: wrapped arcs must stay monotonic
+        when passed to resolve_interval, and total coverage must match the
+        expected arc span.
+        """
+        # Arc crossing ±π (from 170° to -170°)
+        # This is a 20° arc that wraps around the ±π discontinuity
+        alpha_min = 170 * np.pi / 180   # ≈ 2.967 rad
+        alpha_max = -170 * np.pi / 180  # ≈ -2.967 rad
+        
+        # Expected arc span: 360° - 170° - 170° = 20° = 0.349 rad
+        expected_arc_span = (2 * np.pi) - alpha_min + alpha_max
+        
+        # Obstacle that fully spans the arc (vertices outside the arc boundaries)
+        # Needs vertices at angles < 170° and > -170° to ensure full coverage
+        # Using a wide rectangle at x=-3 to -4 with enough height to span 168° to -168°
+        # At x=-3, y=±0.7 gives angle ≈ arctan(0.7/-3) ≈ ±166.9°
         polygon = np.array([
-            [-3.0, 0.3],    # angle ≈ 3.04 rad
-            [-4.0, 0.3],
-            [-4.0, -0.3],
-            [-3.0, -0.3],   # angle ≈ -3.04 rad
+            [-3.0, 0.7],    # angle ≈ 166.9° (inside arc boundary of 170°)
+            [-4.0, 0.7],    # angle ≈ 170.1° (just past arc boundary)
+            [-4.0, -0.7],   # angle ≈ -170.1° (just past arc boundary)
+            [-3.0, -0.7],   # angle ≈ -166.9° (inside arc boundary of -170°)
         ], dtype=np.float32)
         
         edges = self._make_edges_from_polygon(polygon)
         obstacle_edges = {0: edges}
-        
-        # Arc crossing ±π (from 170° to -170°)
-        alpha_min = 170 * np.pi / 180   # ≈ 2.97 rad
-        alpha_max = -170 * np.pi / 180  # ≈ -2.97 rad
         
         events = build_events([polygon], alpha_min, alpha_max)
         
@@ -1194,13 +1207,35 @@ class TestComputeCoverage:
             events, obstacle_edges, alpha_min, alpha_max
         )
         
-        # Should have coverage for the obstacle
-        assert 0 in coverage
-        assert coverage[0] > 0
+        # Must have coverage for the obstacle
+        assert 0 in coverage, "Obstacle should have coverage in wrapped arc"
         
-        # The arc span is 20° = 0.349 rad (wrapping around)
-        expected_arc_span = (2 * np.pi) - alpha_min + alpha_max
-        assert coverage[0] <= expected_arc_span + 0.01
+        # Critical assertion: total coverage must match the arc span within tight tolerance
+        # This catches the regression where wrapped intervals were discarded
+        assert_allclose(
+            coverage[0], 
+            expected_arc_span, 
+            rtol=0.05,  # 5% relative tolerance
+            err_msg=f"Coverage {coverage[0]:.4f} should match arc span {expected_arc_span:.4f}"
+        )
+        
+        # Verify minimum distance is reasonable (obstacle is at x ≈ -3 to -4)
+        assert 0 in min_dist
+        assert 2.5 < min_dist[0] < 4.5, f"Min distance {min_dist[0]} should be ~3-4"
+        
+        # Verify intervals are returned and angles are normalized to [-π, π)
+        assert len(intervals) >= 1, "Should have at least one interval"
+        for interval in intervals:
+            assert -np.pi <= interval.angle_start < np.pi, \
+                f"angle_start {interval.angle_start} should be in [-π, π)"
+            assert -np.pi <= interval.angle_end < np.pi, \
+                f"angle_end {interval.angle_end} should be in [-π, π)"
+            if interval.wraps:
+                assert interval.angle_start > interval.angle_end, \
+                    "Wrapped intervals must have start > end after normalization"
+            else:
+                assert interval.angle_start <= interval.angle_end, \
+                    "Non-wrapped intervals should have start <= end"
         
     def test_compute_coverage_empty_events(self):
         """Empty event list should return empty coverage."""
