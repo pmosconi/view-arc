@@ -74,10 +74,11 @@ class TestGetActiveEdges:
             if np.isclose(edge[0, 0], edge[1, 0]):
                 edge_x_coords.add(edge[0, 0])
         
-        # Should have edges at x=3 and x=5
-        assert 3.0 in edge_x_coords or np.isclose(list(edge_x_coords)[0], 3.0) or \
-               5.0 in edge_x_coords or np.isclose(list(edge_x_coords)[-1], 5.0), \
-               f"Expected edges at x=3 and x=5, got x-coords: {edge_x_coords}"
+        # Should have edges at x=3 and x=5 (one entry, one exit)
+        assert any(np.isclose(x, 3.0) for x in edge_x_coords), \
+            f"Missing entry edge at x≈3, got {edge_x_coords}"
+        assert any(np.isclose(x, 5.0) for x in edge_x_coords), \
+            f"Missing exit edge at x≈5, got {edge_x_coords}"
     
     def test_get_active_edges_ray_tangent_to_vertex(self):
         """Ray exactly at vertex angle may include adjacent edges."""
