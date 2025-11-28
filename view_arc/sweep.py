@@ -196,12 +196,14 @@ def resolve_interval(
     interval_end: float,
     active_obstacles: Dict[int, NDArray[np.float32]],
     num_samples: int = 5
-) -> IntervalResult:
+) -> Optional[IntervalResult]:
     """
     Determine which obstacle owns an angular interval via ray sampling.
     
     Samples multiple rays within the interval and selects the obstacle
-    with minimum average distance.
+    with minimum average distance. For each sample ray, finds the closest
+    intersecting obstacle, then picks the winner based on the lowest
+    average distance across all samples.
     
     Parameters:
         interval_start: Start angle of interval
@@ -211,9 +213,110 @@ def resolve_interval(
         num_samples: Number of rays to sample across interval
         
     Returns:
-        IntervalResult indicating winner and metrics
+        IntervalResult indicating winner and metrics, or None if no obstacles
+        intersected any samples
     """
-    raise NotImplementedError
+    if not active_obstacles:
+        return None
+    
+    # Handle narrow intervals by reducing sample count
+    angular_span = interval_end - interval_start
+    if angular_span <= 0:
+        return None
+    
+    # Adjust samples for very narrow intervals
+    actual_samples = min(num_samples, max(1, int(angular_span / 0.001)))
+    
+    # Generate sample angles within the interval (evenly distributed)
+    if actual_samples == 1:
+        sample_angles = [(interval_start + interval_end) / 2]
+    else:
+        sample_angles = [
+            interval_start + i * angular_span / (actual_samples - 1)
+            for i in range(actual_samples)
+        ]
+    
+    # For each sample ray, find the closest obstacle
+    # Track: obstacle_id -> list of distances where it was closest
+    obstacle_hits: Dict[int, List[float]] = {oid: [] for oid in active_obstacles}
+    
+    for angle in sample_angles:
+        closest_obstacle: Optional[int] = None
+        closest_distance: float = float('inf')
+        
+        # Check each obstacle's edges for intersection
+        for obstacle_id, edges in active_obstacles.items():
+            min_dist_this_obstacle = _find_min_distance_at_angle(edges, angle)
+            
+            if min_dist_this_obstacle is not None and min_dist_this_obstacle < closest_distance:
+                closest_distance = min_dist_this_obstacle
+                closest_obstacle = obstacle_id
+        
+        # Record the hit for the closest obstacle
+        if closest_obstacle is not None:
+            obstacle_hits[closest_obstacle].append(closest_distance)
+    
+    # Find the obstacle that was closest most often, with lowest average distance
+    best_obstacle: Optional[int] = None
+    best_score: float = float('inf')
+    best_min_distance: float = float('inf')
+    
+    for obstacle_id, distances in obstacle_hits.items():
+        if not distances:
+            continue
+        
+        # Score: average distance (lower is better)
+        avg_distance = sum(distances) / len(distances)
+        min_distance = min(distances)
+        
+        # Weight by number of hits to prefer obstacles that consistently block
+        # Use hit_ratio as tie-breaker (more hits is better)
+        hit_ratio = len(distances) / actual_samples
+        
+        # Primary criterion: average distance (weighted by hit consistency)
+        score = avg_distance / hit_ratio if hit_ratio > 0 else float('inf')
+        
+        if score < best_score or (score == best_score and min_distance < best_min_distance):
+            best_score = score
+            best_obstacle = obstacle_id
+            best_min_distance = min_distance
+    
+    if best_obstacle is None:
+        return None
+    
+    return IntervalResult(
+        obstacle_id=best_obstacle,
+        min_distance=best_min_distance,
+        angle_start=interval_start,
+        angle_end=interval_end
+    )
+
+
+def _find_min_distance_at_angle(
+    edges: NDArray[np.float32],
+    angle: float,
+    max_range: float = 1e10
+) -> Optional[float]:
+    """
+    Find minimum distance to any edge at a given angle.
+    
+    Parameters:
+        edges: Array of edges shape (M, 2, 2) where each edge is [[x1,y1], [x2,y2]]
+        angle: Ray angle in radians
+        max_range: Maximum distance to consider
+        
+    Returns:
+        Minimum distance found, or None if no intersection
+    """
+    min_dist: Optional[float] = None
+    
+    for edge in edges:
+        dist = intersect_ray_segment(angle, edge[0], edge[1], max_range)
+        if dist is not None:
+            if min_dist is None or dist < min_dist:
+                min_dist = dist
+    
+    return min_dist
 
 
 def compute_coverage(

@@ -28,10 +28,12 @@ except ImportError:
 
 from view_arc.sweep import (
     AngularEvent,
+    IntervalResult,
     get_active_edges,
     build_events,
+    resolve_interval,
 )
-from view_arc.geometry import to_polar
+from view_arc.geometry import to_polar, intersect_ray_segment
 
 
 # Output directory for visual test results
@@ -595,3 +597,485 @@ class TestSweepVisual:
         fig.suptitle("Vertex Polar Coordinates", fontsize=14, fontweight='bold')
         plt.tight_layout()
         save_figure(fig, "sweep_vertex_angles")
+
+    # =========================================================================
+    # Test: resolve_interval() - Step 3.2
+    # =========================================================================
+
+    def _polygon_to_edges(self, polygon: np.ndarray) -> np.ndarray:
+        """Convert a polygon to an array of edges (M, 2, 2)."""
+        if polygon is None or len(polygon) < 3:
+            return np.empty((0, 2, 2), dtype=np.float32)
+        n = len(polygon)
+        edges = []
+        for i in range(n):
+            edge = np.array([polygon[i], polygon[(i + 1) % n]], dtype=np.float32)
+            edges.append(edge)
+        return np.array(edges, dtype=np.float32)
+
+    def test_visual_resolve_interval_single_obstacle(self):
+        """Visual: Interval resolution with a single obstacle."""
+        fig, axes = plt.subplots(1, 2, figsize=(14, 6))
+        
+        # Create a simple rectangular obstacle
+        obstacle = np.array([
+            [2.0, -1.0],
+            [4.0, -1.0],
+            [4.0, 1.0],
+            [2.0, 1.0],
+        ], dtype=np.float32)
+        
+        edges = self._polygon_to_edges(obstacle)
+        
+        interval_start = -0.3
+        interval_end = 0.3
+        
+        # Left plot: Spatial view
+        ax = axes[0]
+        self._setup_axes(ax, "Single Obstacle - Interval Resolution", xlim=(-1, 6), ylim=(-3, 3))
+        
+        # Draw arc sector for the interval
+        self._draw_arc_sector(ax, interval_start, interval_end, radius=5, 
+                             color='lightgreen', alpha=0.3, label='Interval')
+        
+        # Draw polygon
+        self._draw_polygon(ax, obstacle, color='lightblue', alpha=0.5, 
+                          edgecolor='blue', label='Obstacle 0')
+        
+        # Draw sample rays (5 samples)
+        num_samples = 5
+        sample_angles = np.linspace(interval_start, interval_end, num_samples)
+        for i, angle in enumerate(sample_angles):
+            # Find intersection distance
+            min_dist = None
+            for edge in edges:
+                dist = intersect_ray_segment(angle, edge[0], edge[1], 10.0)
+                if dist is not None and (min_dist is None or dist < min_dist):
+                    min_dist = dist
+            
+            ray_length = min_dist if min_dist else 5
+            color = 'green' if min_dist else 'gray'
+            ax.arrow(0, 0, ray_length * 0.95 * np.cos(angle), 
+                    ray_length * 0.95 * np.sin(angle),
+                    head_width=0.1, head_length=0.08, fc=color, ec=color, linewidth=1)
+            
+            if min_dist:
+                hit_x = min_dist * np.cos(angle)
+                hit_y = min_dist * np.sin(angle)
+                ax.scatter([hit_x], [hit_y], color='red', s=80, zorder=15, 
+                          marker='x', linewidths=2)
+                ax.annotate(f'd={min_dist:.2f}', (hit_x, hit_y), 
+                           textcoords="offset points", xytext=(5, 5), fontsize=8)
+        
+        # Resolve interval
+        result = resolve_interval(interval_start, interval_end, {0: edges}, num_samples)
+        
+        # Annotate result
+        result_text = (f"Winner: Obstacle {result.obstacle_id}\n"
+                      f"Min Distance: {result.min_distance:.2f}") if result else "No intersection"
+        ax.annotate(result_text, (0.02, 0.98), xycoords='axes fraction',
+                   fontsize=11, verticalalignment='top',
+                   bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.8))
+        
+        ax.legend(loc='upper right', fontsize=8)
+        
+        # Right plot: Polar view
+        ax = axes[1]
+        polar_ax = fig.add_subplot(122, projection='polar')
+        polar_ax.set_title("Polar View with Sample Rays")
+        
+        # Draw obstacle in polar coordinates
+        radii, angles = to_polar(obstacle)
+        angles_closed = np.append(angles, angles[0])
+        radii_closed = np.append(radii, radii[0])
+        polar_ax.fill(angles_closed, radii_closed, alpha=0.4, color='blue', label='Obstacle')
+        polar_ax.plot(angles_closed, radii_closed, 'b-', linewidth=2)
+        
+        # Draw sample rays
+        for angle in sample_angles:
+            polar_ax.plot([angle, angle], [0, 5], 'g-', linewidth=1, alpha=0.7)
+        
+        # Highlight interval boundaries
+        polar_ax.axvline(x=interval_start, color='orange', linewidth=2, linestyle='--')
+        polar_ax.axvline(x=interval_end, color='orange', linewidth=2, linestyle='--')
+        
+        polar_ax.set_rlim(0, 6)  # type: ignore[attr-defined]
+        polar_ax.legend(loc='upper right')
+        
+        fig.suptitle("Interval Resolution: Single Obstacle", fontsize=14, fontweight='bold')
+        plt.tight_layout()
+        save_figure(fig, "sweep_resolve_interval_single")
+
+    def test_visual_resolve_interval_occlusion(self):
+        """Visual: Interval resolution with occlusion - closer obstacle wins."""
+        fig, axes = plt.subplots(1, 2, figsize=(14, 6))
+        
+        # Far obstacle (obstacle 0)
+        obstacle_far = np.array([
+            [5.0, -1.5],
+            [7.0, -1.5],
+            [7.0, 1.5],
+            [5.0, 1.5],
+        ], dtype=np.float32)
+        
+        # Close obstacle (obstacle 1)
+        obstacle_close = np.array([
+            [2.0, -0.8],
+            [3.5, -0.8],
+            [3.5, 0.8],
+            [2.0, 0.8],
+        ], dtype=np.float32)
+        
+        edges_far = self._polygon_to_edges(obstacle_far)
+        edges_close = self._polygon_to_edges(obstacle_close)
+        
+        interval_start = -0.25
+        interval_end = 0.25
+        
+        # Left plot: Spatial view
+        ax = axes[0]
+        self._setup_axes(ax, "Occlusion Test - Closer Obstacle Wins", xlim=(-1, 9), ylim=(-3, 3))
+        
+        # Draw arc sector
+        self._draw_arc_sector(ax, interval_start, interval_end, radius=8, 
+                             color='lightyellow', alpha=0.3, label='Interval')
+        
+        # Draw obstacles
+        self._draw_polygon(ax, obstacle_far, color='lightcoral', alpha=0.5, 
+                          edgecolor='red', label='Obstacle 0 (far)')
+        self._draw_polygon(ax, obstacle_close, color='lightgreen', alpha=0.5, 
+                          edgecolor='green', label='Obstacle 1 (close)')
+        
+        # Draw sample rays
+        num_samples = 5
+        sample_angles = np.linspace(interval_start, interval_end, num_samples)
+        
+        for angle in sample_angles:
+            # Find closest intersection
+            min_dist = None
+            winner = None
+            for oid, edges in [(0, edges_far), (1, edges_close)]:
+                for edge in edges:
+                    dist = intersect_ray_segment(angle, edge[0], edge[1], 10.0)
+                    if dist is not None and (min_dist is None or dist < min_dist):
+                        min_dist = dist
+                        winner = oid
+            
+            ray_length = min_dist if min_dist else 8
+            color = 'green' if winner == 1 else ('red' if winner == 0 else 'gray')
+            ax.arrow(0, 0, ray_length * 0.95 * np.cos(angle), 
+                    ray_length * 0.95 * np.sin(angle),
+                    head_width=0.15, head_length=0.1, fc=color, ec=color, linewidth=1.5)
+            
+            if min_dist:
+                hit_x = min_dist * np.cos(angle)
+                hit_y = min_dist * np.sin(angle)
+                ax.scatter([hit_x], [hit_y], color=color, s=100, zorder=15, 
+                          marker='o', edgecolors='black', linewidths=1)
+        
+        # Resolve interval
+        active_obstacles = {0: edges_far, 1: edges_close}
+        result = resolve_interval(interval_start, interval_end, active_obstacles, num_samples)
+        
+        # Annotate result
+        if result:
+            winner_name = "Close (green)" if result.obstacle_id == 1 else "Far (red)"
+            result_text = (f"Winner: Obstacle {result.obstacle_id} ({winner_name})\n"
+                          f"Min Distance: {result.min_distance:.2f}")
+        else:
+            result_text = "No intersection"
+        ax.annotate(result_text, (0.02, 0.98), xycoords='axes fraction',
+                   fontsize=11, verticalalignment='top',
+                   bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.8))
+        
+        ax.legend(loc='upper right', fontsize=8)
+        
+        # Right plot: Side-by-side distance comparison
+        ax = axes[1]
+        ax.set_xlim(-0.5, 2.5)
+        ax.set_ylim(0, 10)
+        ax.set_xlabel('Obstacle ID')
+        ax.set_ylabel('Distance')
+        ax.set_title('Distance Comparison per Sample Ray')
+        
+        # Compute distances for each obstacle at each sample
+        for i, angle in enumerate(sample_angles):
+            for oid, edges, color in [(0, edges_far, 'red'), (1, edges_close, 'green')]:
+                min_dist = None
+                for edge in edges:
+                    dist = intersect_ray_segment(angle, edge[0], edge[1], 10.0)
+                    if dist is not None and (min_dist is None or dist < min_dist):
+                        min_dist = dist
+                if min_dist:
+                    ax.bar(oid + i * 0.1 - 0.2, min_dist, width=0.08, 
+                          color=color, alpha=0.7, edgecolor='black')
+        
+        ax.set_xticks([0, 1])
+        ax.set_xticklabels(['Obstacle 0\n(far)', 'Obstacle 1\n(close)'])
+        ax.axhline(y=2.0, color='green', linestyle='--', alpha=0.5, label='Close dist')
+        ax.axhline(y=5.0, color='red', linestyle='--', alpha=0.5, label='Far dist')
+        ax.legend()
+        
+        fig.suptitle("Interval Resolution: Occlusion (Closer Wins)", fontsize=14, fontweight='bold')
+        plt.tight_layout()
+        save_figure(fig, "sweep_resolve_interval_occlusion")
+
+    def test_visual_resolve_interval_sampling(self):
+        """Visual: Show how multi-ray sampling works within an interval."""
+        fig, axes = plt.subplots(2, 2, figsize=(14, 12))
+        
+        # Create a V-shaped obstacle
+        v_obstacle = np.array([
+            [2.0, 0.0],    # apex
+            [5.0, 2.0],    # top right
+            [5.0, -2.0],   # bottom right
+        ], dtype=np.float32)
+        
+        edges = self._polygon_to_edges(v_obstacle)
+        
+        interval_start = -0.3
+        interval_end = 0.3
+        
+        # Test with different sample counts
+        sample_counts = [1, 3, 5, 9]
+        
+        for ax, num_samples in zip(axes.flatten(), sample_counts):
+            self._setup_axes(ax, f"Sampling with {num_samples} ray(s)", xlim=(-1, 7), ylim=(-3, 3))
+            
+            # Draw arc sector
+            self._draw_arc_sector(ax, interval_start, interval_end, radius=6, 
+                                 color='lightyellow', alpha=0.3)
+            
+            # Draw polygon
+            self._draw_polygon(ax, v_obstacle, color='lightblue', alpha=0.5, 
+                              edgecolor='blue', label='V-shaped obstacle')
+            
+            # Draw sample rays
+            if num_samples == 1:
+                sample_angles = [(interval_start + interval_end) / 2]
+            else:
+                sample_angles = np.linspace(interval_start, interval_end, num_samples)
+            
+            distances = []
+            for angle in sample_angles:
+                min_dist = None
+                for edge in edges:
+                    dist = intersect_ray_segment(angle, edge[0], edge[1], 10.0)
+                    if dist is not None and (min_dist is None or dist < min_dist):
+                        min_dist = dist
+                
+                if min_dist:
+                    distances.append(min_dist)
+                    hit_x = min_dist * np.cos(angle)
+                    hit_y = min_dist * np.sin(angle)
+                    ax.arrow(0, 0, hit_x * 0.95, hit_y * 0.95,
+                            head_width=0.1, head_length=0.08, fc='green', ec='green', linewidth=1)
+                    ax.scatter([hit_x], [hit_y], color='red', s=60, zorder=15, marker='x')
+                    ax.annotate(f'{min_dist:.2f}', (hit_x, hit_y), 
+                               textcoords="offset points", xytext=(5, 5), fontsize=8)
+            
+            # Resolve interval
+            result = resolve_interval(interval_start, interval_end, {0: edges}, num_samples)
+            
+            # Statistics
+            if distances:
+                avg_dist = sum(distances) / len(distances)
+                min_dist_found = min(distances)
+                stats_text = (f"Samples: {num_samples}\n"
+                             f"Hits: {len(distances)}\n"
+                             f"Min dist: {min_dist_found:.2f}\n"
+                             f"Avg dist: {avg_dist:.2f}")
+            else:
+                stats_text = f"Samples: {num_samples}\nNo hits"
+            
+            ax.annotate(stats_text, (0.02, 0.98), xycoords='axes fraction',
+                       fontsize=10, verticalalignment='top', family='monospace',
+                       bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.8))
+            
+            ax.legend(loc='upper right', fontsize=8)
+        
+        fig.suptitle("Interval Resolution: Effect of Sample Count", fontsize=14, fontweight='bold')
+        plt.tight_layout()
+        save_figure(fig, "sweep_resolve_interval_sampling")
+
+    def test_visual_resolve_interval_partial_coverage(self):
+        """Visual: Obstacle that only covers part of the interval."""
+        fig, axes = plt.subplots(1, 2, figsize=(14, 6))
+        
+        # Obstacle that only covers positive angles
+        obstacle_partial = np.array([
+            [2.5, 0.5],
+            [4.0, 0.5],
+            [4.0, 2.0],
+            [2.5, 2.0],
+        ], dtype=np.float32)
+        
+        # Obstacle that covers full interval
+        obstacle_full = np.array([
+            [3.5, -1.5],
+            [5.5, -1.5],
+            [5.5, 1.5],
+            [3.5, 1.5],
+        ], dtype=np.float32)
+        
+        edges_partial = self._polygon_to_edges(obstacle_partial)
+        edges_full = self._polygon_to_edges(obstacle_full)
+        
+        interval_start = -0.4
+        interval_end = 0.6
+        
+        # Left plot: Spatial view
+        ax = axes[0]
+        self._setup_axes(ax, "Partial vs Full Coverage", xlim=(-1, 7), ylim=(-3, 4))
+        
+        # Draw arc sector
+        self._draw_arc_sector(ax, interval_start, interval_end, radius=6, 
+                             color='lightyellow', alpha=0.3, label='Interval')
+        
+        # Draw obstacles
+        self._draw_polygon(ax, obstacle_partial, color='lightcoral', alpha=0.5, 
+                          edgecolor='red', label='Obstacle 0 (partial)')
+        self._draw_polygon(ax, obstacle_full, color='lightgreen', alpha=0.5, 
+                          edgecolor='green', label='Obstacle 1 (full)')
+        
+        # Draw sample rays
+        num_samples = 7
+        sample_angles = np.linspace(interval_start, interval_end, num_samples)
+        
+        hits_per_obstacle = {0: 0, 1: 0}
+        
+        for angle in sample_angles:
+            min_dist = None
+            winner = None
+            
+            for oid, edges in [(0, edges_partial), (1, edges_full)]:
+                for edge in edges:
+                    dist = intersect_ray_segment(angle, edge[0], edge[1], 10.0)
+                    if dist is not None and (min_dist is None or dist < min_dist):
+                        min_dist = dist
+                        winner = oid
+            
+            if winner is not None:
+                hits_per_obstacle[winner] += 1
+            
+            ray_length = min_dist if min_dist else 6
+            if winner == 0:
+                color = 'red'
+            elif winner == 1:
+                color = 'green'
+            else:
+                color = 'gray'
+            
+            ax.arrow(0, 0, ray_length * 0.95 * np.cos(angle), 
+                    ray_length * 0.95 * np.sin(angle),
+                    head_width=0.12, head_length=0.08, fc=color, ec=color, linewidth=1)
+            
+            if min_dist:
+                hit_x = min_dist * np.cos(angle)
+                hit_y = min_dist * np.sin(angle)
+                ax.scatter([hit_x], [hit_y], color=color, s=80, zorder=15, 
+                          marker='o', edgecolors='black', linewidths=1)
+        
+        # Resolve interval
+        active_obstacles = {0: edges_partial, 1: edges_full}
+        result = resolve_interval(interval_start, interval_end, active_obstacles, num_samples)
+        
+        # Annotate hits
+        ax.annotate(f"Obstacle 0 hits: {hits_per_obstacle[0]}\n"
+                   f"Obstacle 1 hits: {hits_per_obstacle[1]}", 
+                   (0.02, 0.85), xycoords='axes fraction',
+                   fontsize=10, family='monospace',
+                   bbox=dict(boxstyle='round', facecolor='white', alpha=0.8))
+        
+        if result:
+            winner_name = "Partial (red)" if result.obstacle_id == 0 else "Full (green)"
+            result_text = f"Winner: Obstacle {result.obstacle_id} ({winner_name})"
+        else:
+            result_text = "No intersection"
+        ax.annotate(result_text, (0.02, 0.98), xycoords='axes fraction',
+                   fontsize=11, verticalalignment='top', fontweight='bold',
+                   bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.8))
+        
+        ax.legend(loc='upper right', fontsize=8)
+        
+        # Right plot: Hit ratio visualization
+        ax = axes[1]
+        ax.set_title('Coverage Analysis')
+        
+        # Bar chart of hits
+        bars = ax.bar([0, 1], [hits_per_obstacle[0], hits_per_obstacle[1]], 
+                     color=['red', 'green'], alpha=0.7, edgecolor='black')
+        ax.set_xticks([0, 1])
+        ax.set_xticklabels(['Obstacle 0\n(partial)', 'Obstacle 1\n(full)'])
+        ax.set_ylabel('Number of Ray Hits')
+        ax.set_ylim(0, num_samples + 1)
+        
+        # Add hit ratio text
+        for i, bar in enumerate(bars):
+            height = bar.get_height()
+            ratio = height / num_samples * 100
+            ax.annotate(f'{int(height)} hits\n({ratio:.0f}%)', 
+                       xy=(bar.get_x() + bar.get_width()/2, height),
+                       ha='center', va='bottom', fontsize=11, fontweight='bold')
+        
+        ax.axhline(y=num_samples, color='black', linestyle='--', alpha=0.3, 
+                  label=f'Total samples: {num_samples}')
+        ax.legend()
+        
+        fig.suptitle("Interval Resolution: Partial vs Full Coverage", fontsize=14, fontweight='bold')
+        plt.tight_layout()
+        save_figure(fig, "sweep_resolve_interval_partial")
+
+    def test_visual_resolve_interval_no_intersection(self):
+        """Visual: Interval where obstacles don't intersect sample rays."""
+        fig, ax = plt.subplots(1, 1, figsize=(10, 8))
+        
+        # Obstacle far above the x-axis
+        obstacle = np.array([
+            [2.0, 3.0],
+            [4.0, 3.0],
+            [4.0, 5.0],
+            [2.0, 5.0],
+        ], dtype=np.float32)
+        
+        edges = self._polygon_to_edges(obstacle)
+        
+        interval_start = -0.2
+        interval_end = 0.2
+        
+        self._setup_axes(ax, "No Intersection Scenario", xlim=(-1, 6), ylim=(-2, 6))
+        
+        # Draw arc sector
+        self._draw_arc_sector(ax, interval_start, interval_end, radius=5, 
+                             color='lightgreen', alpha=0.3, label='Interval')
+        
+        # Draw polygon
+        self._draw_polygon(ax, obstacle, color='lightblue', alpha=0.5, 
+                          edgecolor='blue', label='Obstacle (above rays)')
+        
+        # Draw sample rays
+        num_samples = 5
+        sample_angles = np.linspace(interval_start, interval_end, num_samples)
+        
+        for angle in sample_angles:
+            ax.arrow(0, 0, 5 * np.cos(angle), 5 * np.sin(angle),
+                    head_width=0.1, head_length=0.08, fc='gray', ec='gray', linewidth=1)
+        
+        # Resolve interval
+        result = resolve_interval(interval_start, interval_end, {0: edges}, num_samples)
+        
+        # Annotate
+        result_text = "Result: None (no intersections)" if result is None else f"Result: {result}"
+        ax.annotate(result_text, (0.02, 0.98), xycoords='axes fraction',
+                   fontsize=12, verticalalignment='top',
+                   bbox=dict(boxstyle='round', facecolor='lightyellow', alpha=0.8))
+        
+        ax.annotate("Rays miss the obstacle\n(obstacle is above the sampled angular range)", 
+                   (3, 1), fontsize=10, ha='center',
+                   bbox=dict(boxstyle='round', facecolor='white', alpha=0.8))
+        
+        ax.legend(loc='upper right', fontsize=9)
+        
+        fig.suptitle("Interval Resolution: No Intersection", fontsize=14, fontweight='bold')
+        plt.tight_layout()
+        save_figure(fig, "sweep_resolve_interval_no_hit")

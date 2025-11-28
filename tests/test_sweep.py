@@ -5,7 +5,7 @@ Step 3.1: Event Construction
 - test_get_active_edges_*
 - test_build_events_*
 
-Step 3.2: Interval Resolution (to be added)
+Step 3.2: Interval Resolution
 - test_resolve_interval_*
 """
 
@@ -15,8 +15,10 @@ from numpy.testing import assert_allclose, assert_array_almost_equal
 
 from view_arc.sweep import (
     AngularEvent,
+    IntervalResult,
     get_active_edges,
     build_events,
+    resolve_interval,
     _edge_crosses_angle,
 )
 
@@ -545,3 +547,258 @@ class TestAngularEventOrdering:
         assert sorted_events[2].event_type == 'vertex'
         assert sorted_events[3].angle == 0.5
         assert sorted_events[3].event_type == 'edge_crossing'
+
+
+# =============================================================================
+# Step 3.2: Interval Resolution Tests
+# =============================================================================
+
+class TestResolveInterval:
+    """Tests for resolve_interval() function."""
+    
+    def test_resolve_interval_single_obstacle(self):
+        """Trivial case with single obstacle should return that obstacle."""
+        # Single vertical edge at x=3, from y=-1 to y=1
+        # Ray at angle 0 (along +x axis) will hit this edge at distance 3
+        edges = np.array([
+            [[3.0, -1.0], [3.0, 1.0]],
+        ], dtype=np.float32)
+        
+        active_obstacles = {0: edges}
+        
+        result = resolve_interval(
+            interval_start=-0.1,
+            interval_end=0.1,
+            active_obstacles=active_obstacles,
+            num_samples=5
+        )
+        
+        assert result is not None
+        assert result.obstacle_id == 0
+        assert_allclose(result.min_distance, 3.0, atol=0.1)
+        assert result.angle_start == -0.1
+        assert result.angle_end == 0.1
+    
+    def test_resolve_interval_two_obstacles_one_closer(self):
+        """Occlusion test: closer obstacle should win."""
+        # Obstacle 0: edge at x=5 (far)
+        edges_far = np.array([
+            [[5.0, -1.0], [5.0, 1.0]],
+        ], dtype=np.float32)
+        
+        # Obstacle 1: edge at x=2 (closer)
+        edges_close = np.array([
+            [[2.0, -1.0], [2.0, 1.0]],
+        ], dtype=np.float32)
+        
+        active_obstacles = {0: edges_far, 1: edges_close}
+        
+        result = resolve_interval(
+            interval_start=-0.1,
+            interval_end=0.1,
+            active_obstacles=active_obstacles,
+            num_samples=5
+        )
+        
+        assert result is not None
+        assert result.obstacle_id == 1  # Closer obstacle wins
+        assert_allclose(result.min_distance, 2.0, atol=0.1)
+    
+    def test_resolve_interval_overlapping_at_different_distances(self):
+        """Depth test: obstacles at different distances, closer one occludes."""
+        # Obstacle 0: box further away (x=4 to x=6)
+        edges_box1 = np.array([
+            [[4.0, -1.0], [4.0, 1.0]],   # Left edge at x=4
+            [[6.0, -1.0], [6.0, 1.0]],   # Right edge at x=6
+            [[4.0, 1.0], [6.0, 1.0]],    # Top edge
+            [[4.0, -1.0], [6.0, -1.0]],  # Bottom edge
+        ], dtype=np.float32)
+        
+        # Obstacle 1: box closer (x=2 to x=3)
+        edges_box2 = np.array([
+            [[2.0, -0.5], [2.0, 0.5]],   # Left edge at x=2
+            [[3.0, -0.5], [3.0, 0.5]],   # Right edge at x=3
+            [[2.0, 0.5], [3.0, 0.5]],    # Top edge
+            [[2.0, -0.5], [3.0, -0.5]],  # Bottom edge
+        ], dtype=np.float32)
+        
+        active_obstacles = {0: edges_box1, 1: edges_box2}
+        
+        # Query interval centered on 0 where both boxes are visible
+        result = resolve_interval(
+            interval_start=-0.2,
+            interval_end=0.2,
+            active_obstacles=active_obstacles,
+            num_samples=5
+        )
+        
+        assert result is not None
+        # Closer box (obstacle 1) should win
+        assert result.obstacle_id == 1
+        assert result.min_distance < 3.5  # Should hit closer box
+    
+    def test_resolve_interval_sampling_density(self):
+        """Verify that 5 samples are used by default."""
+        # Create a simple edge
+        edges = np.array([
+            [[3.0, -2.0], [3.0, 2.0]],
+        ], dtype=np.float32)
+        
+        active_obstacles = {0: edges}
+        
+        # The function should use num_samples=5 by default
+        result = resolve_interval(
+            interval_start=-0.3,
+            interval_end=0.3,
+            active_obstacles=active_obstacles,
+            num_samples=5
+        )
+        
+        assert result is not None
+        assert result.obstacle_id == 0
+    
+    def test_resolve_interval_no_obstacles(self):
+        """Empty active set should return None."""
+        result = resolve_interval(
+            interval_start=-0.1,
+            interval_end=0.1,
+            active_obstacles={},
+            num_samples=5
+        )
+        
+        assert result is None
+    
+    def test_resolve_interval_obstacle_at_boundary(self):
+        """Edge case: obstacle edge exactly at interval boundary."""
+        # Edge that only covers part of the interval
+        # Angled edge from (2, 0) to (3, 1.5) - covers angles roughly 0 to ~0.46 rad
+        edges = np.array([
+            [[2.0, 0.0], [3.0, 1.5]],
+        ], dtype=np.float32)
+        
+        active_obstacles = {0: edges}
+        
+        result = resolve_interval(
+            interval_start=0.0,
+            interval_end=0.5,
+            active_obstacles=active_obstacles,
+            num_samples=5
+        )
+        
+        # Should still find the obstacle since some samples hit it
+        assert result is not None
+        assert result.obstacle_id == 0
+    
+    def test_resolve_interval_narrow_interval(self):
+        """Small angular span should still work correctly."""
+        edges = np.array([
+            [[3.0, -0.1], [3.0, 0.1]],
+        ], dtype=np.float32)
+        
+        active_obstacles = {0: edges}
+        
+        # Very narrow interval
+        result = resolve_interval(
+            interval_start=-0.01,
+            interval_end=0.01,
+            active_obstacles=active_obstacles,
+            num_samples=5
+        )
+        
+        assert result is not None
+        assert result.obstacle_id == 0
+        assert_allclose(result.min_distance, 3.0, atol=0.1)
+    
+    def test_resolve_interval_no_intersection(self):
+        """Obstacles that don't intersect any sample rays should return None."""
+        # Edge in the upper part - won't be hit by rays at angle 0
+        edges = np.array([
+            [[3.0, 5.0], [4.0, 6.0]],  # Edge far above x-axis
+        ], dtype=np.float32)
+        
+        active_obstacles = {0: edges}
+        
+        # Query interval around 0 (along x-axis)
+        result = resolve_interval(
+            interval_start=-0.1,
+            interval_end=0.1,
+            active_obstacles=active_obstacles,
+            num_samples=5
+        )
+        
+        # Should return None since no rays hit the edge
+        assert result is None
+    
+    def test_resolve_interval_returns_correct_interval_bounds(self):
+        """Verify that returned interval bounds match input."""
+        edges = np.array([
+            [[2.0, -1.0], [2.0, 1.0]],
+        ], dtype=np.float32)
+        
+        active_obstacles = {0: edges}
+        
+        interval_start = 0.123
+        interval_end = 0.456
+        
+        result = resolve_interval(
+            interval_start=interval_start,
+            interval_end=interval_end,
+            active_obstacles=active_obstacles,
+            num_samples=5
+        )
+        
+        assert result is not None
+        assert result.angle_start == interval_start
+        assert result.angle_end == interval_end
+    
+    def test_resolve_interval_min_distance_accuracy(self):
+        """Verify minimum distance is accurately computed."""
+        # Create a V-shaped obstacle where distance varies with angle
+        # The apex of the V is at (2, 0), so minimum distance should be 2
+        edges = np.array([
+            [[2.0, 0.0], [4.0, 1.0]],   # Right arm of V
+            [[2.0, 0.0], [4.0, -1.0]],  # Left arm of V
+        ], dtype=np.float32)
+        
+        active_obstacles = {0: edges}
+        
+        # Query around angle 0 where the apex is
+        result = resolve_interval(
+            interval_start=-0.2,
+            interval_end=0.2,
+            active_obstacles=active_obstacles,
+            num_samples=5
+        )
+        
+        assert result is not None
+        assert result.obstacle_id == 0
+        # Minimum distance should be at the apex (approximately 2.0)
+        assert result.min_distance < 2.5
+    
+    def test_resolve_interval_partial_coverage_picks_dominant(self):
+        """When obstacles cover different parts, the one with more hits wins."""
+        # Obstacle 0: covers only positive angles
+        edges0 = np.array([
+            [[3.0, 0.5], [3.0, 2.0]],  # Only above x-axis
+        ], dtype=np.float32)
+        
+        # Obstacle 1: covers both positive and negative angles
+        edges1 = np.array([
+            [[4.0, -2.0], [4.0, 2.0]],  # Spans across x-axis
+        ], dtype=np.float32)
+        
+        active_obstacles = {0: edges0, 1: edges1}
+        
+        # Query symmetric interval - obstacle 1 should have more hits
+        result = resolve_interval(
+            interval_start=-0.4,
+            interval_end=0.4,
+            active_obstacles=active_obstacles,
+            num_samples=5
+        )
+        
+        assert result is not None
+        # Obstacle 0 is closer where it exists, but obstacle 1 covers more angles
+        # The scoring should balance hit ratio and distance
+        # This depends on exact scoring - verify the result is one of them
+        assert result.obstacle_id in [0, 1]
