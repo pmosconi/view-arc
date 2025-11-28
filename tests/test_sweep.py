@@ -638,15 +638,28 @@ class TestResolveInterval:
         assert result.min_distance < 3.5  # Should hit closer box
     
     def test_resolve_interval_sampling_density(self):
-        """Verify that 5 samples are used by default."""
-        # Create a simple edge
-        edges = np.array([
-            [[3.0, -2.0], [3.0, 2.0]],
+        """Verify that correct number of samples affects winner determination.
+        
+        This test creates a scenario where having 5 samples vs fewer samples
+        would produce different winners, thus verifying sampling behavior.
+        """
+        # Obstacle 0: small edge that only gets hit by 1 out of 5 samples
+        # Located at angle ~0.24 rad (only hit by sample at 0.3 out of [-0.3, -0.15, 0, 0.15, 0.3])
+        edges0 = np.array([
+            [[3.0, 0.7], [3.0, 1.0]],  # Edge at angles ~0.23 to ~0.32 rad
         ], dtype=np.float32)
         
-        active_obstacles = {0: edges}
+        # Obstacle 1: wide edge hit by all 5 samples, but further away
+        edges1 = np.array([
+            [[5.0, -2.0], [5.0, 2.0]],  # Edge spanning full interval, at distance 5
+        ], dtype=np.float32)
         
-        # The function should use num_samples=5 by default
+        active_obstacles = {0: edges0, 1: edges1}
+        
+        # With 5 samples at angles [-0.3, -0.15, 0, 0.15, 0.3]:
+        # - Obstacle 0 is hit by ~1 sample (at 0.3), distance ~3
+        # - Obstacle 1 is hit by all 5 samples, distance 5
+        # Obstacle 1 should win due to better coverage despite greater distance
         result = resolve_interval(
             interval_start=-0.3,
             interval_end=0.3,
@@ -655,7 +668,9 @@ class TestResolveInterval:
         )
         
         assert result is not None
-        assert result.obstacle_id == 0
+        # Obstacle 1 wins because it has consistent coverage (5/5 hits)
+        # while obstacle 0 only has 1/5 hits
+        assert result.obstacle_id == 1
     
     def test_resolve_interval_no_obstacles(self):
         """Empty active set should return None."""
@@ -708,6 +723,61 @@ class TestResolveInterval:
         assert result is not None
         assert result.obstacle_id == 0
         assert_allclose(result.min_distance, 3.0, atol=0.1)
+    
+    def test_resolve_interval_extremely_narrow_boundary_obstacle(self):
+        """Obstacle only at endpoint of extremely narrow interval must be detected.
+        
+        This is a regression test for the issue where narrow intervals were 
+        downsampled to a single midpoint sample, missing obstacles at boundaries.
+        """
+        # Edge that spans exactly angle=0 (from (3, -0.001) to (3, 0.001))
+        # This edge is ONLY intersected at angle=0, not at any positive angle
+        edges = np.array([
+            [[3.0, -0.001], [3.0, 0.001]],
+        ], dtype=np.float32)
+        
+        active_obstacles = {0: edges}
+        
+        # Extremely narrow interval [0, 5e-4]
+        # The midpoint 2.5e-4 would miss this edge, but endpoint 0 should hit it
+        result = resolve_interval(
+            interval_start=0.0,
+            interval_end=5e-4,
+            active_obstacles=active_obstacles,
+            num_samples=5
+        )
+        
+        # Must detect the obstacle at the start boundary
+        assert result is not None, (
+            "Obstacle at interval start boundary was not detected. "
+            "Sampling should always include endpoints."
+        )
+        assert result.obstacle_id == 0
+        assert_allclose(result.min_distance, 3.0, atol=0.1)
+    
+    def test_resolve_interval_boundary_only_end(self):
+        """Obstacle only at end boundary of narrow interval must be detected."""
+        # Edge that spans a small range around angle=0.001 rad
+        # At x=3, y ranges from 0.002 to 0.004 -> angles ~0.00067 to ~0.00133 rad
+        edges = np.array([
+            [[3.0, 0.002], [3.0, 0.004]],
+        ], dtype=np.float32)
+        
+        active_obstacles = {0: edges}
+        
+        # Interval [0, 0.001] - only the endpoint at 0.001 might hit
+        # (Actually this edge is at angles 0.00067-0.00133, so endpoint 0.001 hits it)
+        result = resolve_interval(
+            interval_start=0.0,
+            interval_end=0.001,
+            active_obstacles=active_obstacles,
+            num_samples=5
+        )
+        
+        # The edge might be hit by end boundary sample
+        assert result is not None, (
+            "Obstacle near interval end boundary was not detected."
+        )
     
     def test_resolve_interval_no_intersection(self):
         """Obstacles that don't intersect any sample rays should return None."""
@@ -776,20 +846,30 @@ class TestResolveInterval:
         assert result.min_distance < 2.5
     
     def test_resolve_interval_partial_coverage_picks_dominant(self):
-        """When obstacles cover different parts, the one with more hits wins."""
-        # Obstacle 0: covers only positive angles
+        """When one obstacle has clearly more coverage, it should win.
+        
+        This test verifies that the hit-ratio scoring logic works correctly:
+        an obstacle with full coverage should beat one with partial coverage,
+        even if the partial-coverage obstacle is slightly closer.
+        """
+        # Obstacle 0: covers only a small portion of positive angles
+        # Edge from y=1.5 to y=2.0, at x=3 -> angles ~0.46 to ~0.59 rad
+        # With samples at [-0.4, -0.2, 0, 0.2, 0.4], this gets 0-1 hits
         edges0 = np.array([
-            [[3.0, 0.5], [3.0, 2.0]],  # Only above x-axis
+            [[3.0, 1.5], [3.0, 2.0]],  # Only hits angles ~0.46 to ~0.59 rad
         ], dtype=np.float32)
         
-        # Obstacle 1: covers both positive and negative angles
+        # Obstacle 1: covers the full interval from -0.4 to 0.4
+        # Edge from y=-2.0 to y=2.0 at x=4 -> angles ~-0.46 to ~0.46 rad
         edges1 = np.array([
-            [[4.0, -2.0], [4.0, 2.0]],  # Spans across x-axis
+            [[4.0, -2.0], [4.0, 2.0]],  # Spans full interval
         ], dtype=np.float32)
         
         active_obstacles = {0: edges0, 1: edges1}
         
-        # Query symmetric interval - obstacle 1 should have more hits
+        # Query interval [-0.4, 0.4] with 5 samples at [-0.4, -0.2, 0, 0.2, 0.4]
+        # Obstacle 0: 0 hits (its angular range ~0.46-0.59 is outside sample angles)
+        # Obstacle 1: 5 hits (covers full range)
         result = resolve_interval(
             interval_start=-0.4,
             interval_end=0.4,
@@ -798,7 +878,8 @@ class TestResolveInterval:
         )
         
         assert result is not None
-        # Obstacle 0 is closer where it exists, but obstacle 1 covers more angles
-        # The scoring should balance hit ratio and distance
-        # This depends on exact scoring - verify the result is one of them
-        assert result.obstacle_id in [0, 1]
+        # Obstacle 1 must win because it has full coverage (5/5 hits)
+        # while obstacle 0 has zero hits in the sampled range
+        assert result.obstacle_id == 1, (
+            f"Expected obstacle 1 (full coverage) to win, but got obstacle {result.obstacle_id}"
+        )

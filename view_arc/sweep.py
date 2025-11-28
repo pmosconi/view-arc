@@ -224,17 +224,17 @@ def resolve_interval(
     if angular_span <= 0:
         return None
     
-    # Adjust samples for very narrow intervals
-    actual_samples = min(num_samples, max(1, int(angular_span / 0.001)))
+    # Always use at least 2 samples to ensure both endpoints are covered.
+    # This prevents missing obstacles that only appear at interval boundaries.
+    # For very narrow intervals, we still sample both endpoints.
+    actual_samples = max(2, min(num_samples, max(2, int(angular_span / 0.001))))
     
     # Generate sample angles within the interval (evenly distributed)
-    if actual_samples == 1:
-        sample_angles = [(interval_start + interval_end) / 2]
-    else:
-        sample_angles = [
-            interval_start + i * angular_span / (actual_samples - 1)
-            for i in range(actual_samples)
-        ]
+    # Always includes both endpoints (interval_start and interval_end)
+    sample_angles = [
+        interval_start + i * angular_span / (actual_samples - 1)
+        for i in range(actual_samples)
+    ]
     
     # For each sample ray, find the closest obstacle
     # Track: obstacle_id -> list of distances where it was closest
