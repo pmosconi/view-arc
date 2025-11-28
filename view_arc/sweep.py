@@ -2,13 +2,15 @@
 Angular sweep implementation for occlusion resolution and coverage computation.
 """
 
-from dataclasses import dataclass
-from typing import List, Tuple, Dict
+from dataclasses import dataclass, field
+from typing import List, Tuple, Dict, Optional
 import numpy as np
 from numpy.typing import NDArray
 
+from view_arc.geometry import normalize_angle, to_polar, intersect_ray_segment
 
-@dataclass
+
+@dataclass(order=True)
 class AngularEvent:
     """
     Event at a specific angle during angular sweep.
@@ -18,11 +20,20 @@ class AngularEvent:
         obstacle_id: Index of associated obstacle
         event_type: 'vertex' or 'edge_crossing'
         vertex_idx: Index of vertex in polygon (for vertex events)
+        
+    Ordering: Events are sorted by (angle, event_type_priority) where
+    vertex events come before edge_crossing events at the same angle.
     """
     angle: float
-    obstacle_id: int
-    event_type: str
-    vertex_idx: int = -1
+    # Sort priority: 0 for vertex (first), 1 for edge_crossing (second)
+    _sort_priority: int = field(init=False, repr=False)
+    obstacle_id: int = field(compare=False)
+    event_type: str = field(compare=False)
+    vertex_idx: int = field(default=-1, compare=False)
+    
+    def __post_init__(self):
+        # Vertex events should be processed before edge_crossing events at same angle
+        self._sort_priority = 0 if self.event_type == 'vertex' else 1
 
 
 @dataclass
@@ -53,14 +64,116 @@ def build_events(
     Creates events for vertices and edge crossings of angular boundaries.
     
     Parameters:
-        clipped_polygons: List of clipped polygons in polar (r, alpha) form
+        clipped_polygons: List of clipped polygons in Cartesian (x, y) form
         alpha_min: Minimum arc angle
         alpha_max: Maximum arc angle
         
     Returns:
         Sorted list of AngularEvent objects
     """
-    raise NotImplementedError
+    events: List[AngularEvent] = []
+    
+    for obstacle_id, polygon in enumerate(clipped_polygons):
+        if polygon is None or len(polygon) < 3:
+            continue
+        
+        # Convert polygon vertices to polar coordinates
+        radii, angles = to_polar(polygon)
+        n_vertices = len(polygon)
+        
+        for i in range(n_vertices):
+            # Create vertex event
+            vertex_angle = float(angles[i])
+            
+            # Check if vertex is within the arc range
+            if _angle_in_arc(vertex_angle, alpha_min, alpha_max):
+                events.append(AngularEvent(
+                    angle=vertex_angle,
+                    obstacle_id=obstacle_id,
+                    event_type='vertex',
+                    vertex_idx=i
+                ))
+            
+            # Check for edge crossings at alpha_min and alpha_max
+            next_i = (i + 1) % n_vertices
+            angle_start = float(angles[i])
+            angle_end = float(angles[next_i])
+            
+            # Check if edge crosses alpha_min boundary
+            if _edge_crosses_angle(angle_start, angle_end, alpha_min):
+                events.append(AngularEvent(
+                    angle=alpha_min,
+                    obstacle_id=obstacle_id,
+                    event_type='edge_crossing',
+                    vertex_idx=i
+                ))
+            
+            # Check if edge crosses alpha_max boundary
+            if _edge_crosses_angle(angle_start, angle_end, alpha_max):
+                events.append(AngularEvent(
+                    angle=alpha_max,
+                    obstacle_id=obstacle_id,
+                    event_type='edge_crossing',
+                    vertex_idx=i
+                ))
+    
+    # Sort events by angle, with vertex events before edge_crossing at same angle
+    events.sort()
+    
+    return events
+
+
+def _angle_in_arc(angle: float, alpha_min: float, alpha_max: float) -> bool:
+    """
+    Check if an angle is within the arc range [alpha_min, alpha_max].
+    
+    Handles the case where the arc crosses the ±π boundary.
+    """
+    if alpha_min <= alpha_max:
+        # Normal case: arc doesn't cross ±π
+        return alpha_min <= angle <= alpha_max
+    else:
+        # Arc crosses ±π boundary (e.g., from 170° to -170°)
+        return angle >= alpha_min or angle <= alpha_max
+
+
+def _edge_crosses_angle(angle_start: float, angle_end: float, boundary_angle: float) -> bool:
+    """
+    Check if an edge (defined by start and end angles) crosses a boundary angle.
+    
+    An edge crosses the boundary if the boundary is strictly between 
+    the start and end angles (not at the endpoints).
+    """
+    # Normalize the angular span
+    # We need to check if boundary_angle is strictly between angle_start and angle_end
+    
+    # Handle the simpler case where we don't cross ±π
+    diff = angle_end - angle_start
+    
+    # Normalize diff to be in (-π, π] for proper direction
+    while diff > np.pi:
+        diff -= 2 * np.pi
+    while diff <= -np.pi:
+        diff += 2 * np.pi
+    
+    if abs(diff) < 1e-10:
+        # Degenerate edge (same angle)
+        return False
+    
+    # Calculate relative position of boundary
+    rel_boundary = boundary_angle - angle_start
+    while rel_boundary > np.pi:
+        rel_boundary -= 2 * np.pi
+    while rel_boundary <= -np.pi:
+        rel_boundary += 2 * np.pi
+    
+    # Check if boundary is strictly between start and end
+    if diff > 0:
+        # CCW traversal: boundary should be in (0, diff)
+        return 0 < rel_boundary < diff
+    else:
+        # CW traversal: boundary should be in (diff, 0)
+        return diff < rel_boundary < 0
 
 
 def resolve_interval(
@@ -115,19 +228,89 @@ def compute_coverage(
 
 
 def get_active_edges(
-    obstacle_id: int,
     polygon: NDArray[np.float32],
-    angle: float
+    angle: float,
+    max_range: float = 1e10
 ) -> NDArray[np.float32]:
     """
     Get edges of a polygon that are active (span) at given angle.
     
+    An edge is "active" at a given angle if a ray from the origin at that
+    angle would intersect the edge. This is determined by actual geometric
+    ray-segment intersection.
+    
     Parameters:
-        obstacle_id: Obstacle identifier
-        polygon: Polygon in polar coordinates (N, 2) as (r, alpha)
+        polygon: Polygon in Cartesian coordinates (N, 2) as (x, y)
         angle: Query angle in radians
+        max_range: Maximum distance for intersection check
         
     Returns:
-        Array of active edges (M, 2, 2) in Cartesian coordinates
+        Array of active edges (M, 2, 2) in Cartesian coordinates where
+        each edge is represented as [[x1, y1], [x2, y2]]
+        Returns empty array with shape (0, 2, 2) if no edges are active.
     """
-    raise NotImplementedError
+    if polygon is None or len(polygon) < 3:
+        return np.empty((0, 2, 2), dtype=np.float32)
+    
+    n_vertices = len(polygon)
+    active_edges = []
+    
+    for i in range(n_vertices):
+        next_i = (i + 1) % n_vertices
+        
+        # Use actual ray-segment intersection to check if edge is active
+        intersection = intersect_ray_segment(
+            angle, 
+            polygon[i], 
+            polygon[next_i], 
+            max_range
+        )
+        
+        if intersection is not None:
+            edge = np.array([
+                polygon[i],
+                polygon[next_i]
+            ], dtype=np.float32)
+            active_edges.append(edge)
+    
+    if not active_edges:
+        return np.empty((0, 2, 2), dtype=np.float32)
+    
+    return np.array(active_edges, dtype=np.float32)
+
+
+def _edge_spans_angle(angle_start: float, angle_end: float, query_angle: float) -> bool:
+    """
+    Check if an edge (defined by start and end angles) spans a query angle.
+    
+    An edge spans an angle if a ray at that angle would intersect the edge.
+    This includes the endpoints (unlike _edge_crosses_angle which is strict).
+    """
+    # Handle the case where the edge wraps around ±π
+    # Calculate the angular span from start to end
+    diff = angle_end - angle_start
+    
+    # Normalize diff to be in (-π, π] for proper direction determination
+    while diff > np.pi:
+        diff -= 2 * np.pi
+    while diff <= -np.pi:
+        diff += 2 * np.pi
+    
+    if abs(diff) < 1e-10:
+        # Degenerate edge (same angle) - only spans if at that exact angle
+        return abs(normalize_angle(query_angle - angle_start)) < 1e-10
+    
+    # Calculate relative position of query angle from start
+    rel_query = query_angle - angle_start
+    while rel_query > np.pi:
+        rel_query -= 2 * np.pi
+    while rel_query <= -np.pi:
+        rel_query += 2 * np.pi
+    
+    # Check if query angle is within the arc from start to end (inclusive)
+    if diff > 0:
+        # CCW traversal: query should be in [0, diff]
+        return 0 <= rel_query <= diff
+    else:
+        # CW traversal: query should be in [diff, 0]
+        return diff <= rel_query <= 0
