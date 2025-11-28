@@ -19,6 +19,7 @@ from view_arc.sweep import (
     get_active_edges,
     build_events,
     resolve_interval,
+    compute_coverage,
     _edge_crosses_angle,
 )
 
@@ -883,3 +884,350 @@ class TestResolveInterval:
         assert result.obstacle_id == 1, (
             f"Expected obstacle 1 (full coverage) to win, but got obstacle {result.obstacle_id}"
         )
+
+
+# =============================================================================
+# Step 3.3: Coverage Computation Tests
+# =============================================================================
+
+class TestComputeCoverage:
+    """Tests for compute_coverage() function."""
+    
+    def _make_edges_from_polygon(self, polygon):
+        """Helper to convert a polygon to edge array format."""
+        n = len(polygon)
+        edges = np.zeros((n, 2, 2), dtype=np.float32)
+        for i in range(n):
+            edges[i, 0] = polygon[i]
+            edges[i, 1] = polygon[(i + 1) % n]
+        return edges
+    
+    def test_compute_coverage_single_obstacle_full_arc(self):
+        """Single obstacle occupying entire FOV should get 100% coverage."""
+        # Square centered on x-axis, fully covering the arc
+        polygon = np.array([
+            [2.0, -1.0],   # angle ≈ -0.46 rad
+            [4.0, -1.0],   # angle ≈ -0.24 rad
+            [4.0, 1.0],    # angle ≈ 0.24 rad
+            [2.0, 1.0],    # angle ≈ 0.46 rad
+        ], dtype=np.float32)
+        
+        edges = self._make_edges_from_polygon(polygon)
+        obstacle_edges = {0: edges}
+        
+        # Arc from -0.3 to 0.3 rad (fully within obstacle's angular span)
+        alpha_min = -0.3
+        alpha_max = 0.3
+        
+        # Build events for the polygon
+        events = build_events([polygon], alpha_min, alpha_max)
+        
+        coverage, min_dist, intervals = compute_coverage(
+            events, obstacle_edges, alpha_min, alpha_max
+        )
+        
+        # Obstacle 0 should own the entire arc
+        assert 0 in coverage
+        expected_coverage = alpha_max - alpha_min  # 0.6 rad
+        assert_allclose(coverage[0], expected_coverage, rtol=0.1)
+        
+        # Should have a finite minimum distance
+        assert 0 in min_dist
+        assert min_dist[0] < 5.0  # Should be around 2.0
+        
+    def test_compute_coverage_two_obstacles_side_by_side(self):
+        """Two obstacles without occlusion should each get their angular coverage."""
+        # Obstacle 0: in upper part of arc
+        polygon0 = np.array([
+            [2.0, 0.5],   # angle ≈ 0.24 rad
+            [3.0, 0.5],   # angle ≈ 0.17 rad
+            [3.0, 1.5],   # angle ≈ 0.46 rad
+            [2.0, 1.5],   # angle ≈ 0.64 rad
+        ], dtype=np.float32)
+        
+        # Obstacle 1: in lower part of arc
+        polygon1 = np.array([
+            [2.0, -1.5],  # angle ≈ -0.64 rad
+            [3.0, -1.5],  # angle ≈ -0.46 rad
+            [3.0, -0.5],  # angle ≈ -0.17 rad
+            [2.0, -0.5],  # angle ≈ -0.24 rad
+        ], dtype=np.float32)
+        
+        edges0 = self._make_edges_from_polygon(polygon0)
+        edges1 = self._make_edges_from_polygon(polygon1)
+        obstacle_edges = {0: edges0, 1: edges1}
+        
+        # Arc covering both obstacles
+        alpha_min = -0.8
+        alpha_max = 0.8
+        
+        events = build_events([polygon0, polygon1], alpha_min, alpha_max)
+        
+        coverage, min_dist, intervals = compute_coverage(
+            events, obstacle_edges, alpha_min, alpha_max
+        )
+        
+        # Both obstacles should have coverage
+        assert 0 in coverage
+        assert 1 in coverage
+        
+        # Both should have positive coverage
+        assert coverage[0] > 0
+        assert coverage[1] > 0
+        
+        # Total coverage should be less than or equal to arc span
+        total_coverage = sum(coverage.values())
+        arc_span = alpha_max - alpha_min
+        assert total_coverage <= arc_span + 0.01
+        
+    def test_compute_coverage_two_obstacles_overlapping(self):
+        """When one obstacle occludes another, closer one gets coverage."""
+        # Obstacle 0: further away
+        polygon0 = np.array([
+            [4.0, -0.5],
+            [5.0, -0.5],
+            [5.0, 0.5],
+            [4.0, 0.5],
+        ], dtype=np.float32)
+        
+        # Obstacle 1: closer, overlapping the same angular region
+        polygon1 = np.array([
+            [2.0, -0.3],
+            [3.0, -0.3],
+            [3.0, 0.3],
+            [2.0, 0.3],
+        ], dtype=np.float32)
+        
+        edges0 = self._make_edges_from_polygon(polygon0)
+        edges1 = self._make_edges_from_polygon(polygon1)
+        obstacle_edges = {0: edges0, 1: edges1}
+        
+        # Arc covering both obstacles
+        alpha_min = -0.2
+        alpha_max = 0.2
+        
+        events = build_events([polygon0, polygon1], alpha_min, alpha_max)
+        
+        coverage, min_dist, intervals = compute_coverage(
+            events, obstacle_edges, alpha_min, alpha_max
+        )
+        
+        # Closer obstacle (1) should dominate
+        assert 1 in coverage
+        # Obstacle 1 should have most or all of the coverage
+        if 0 in coverage:
+            assert coverage[1] >= coverage.get(0, 0)
+        
+        # Obstacle 1's min distance should be smaller
+        if 0 in min_dist and 1 in min_dist:
+            assert min_dist[1] < min_dist[0]
+    
+    def test_compute_coverage_gap_in_arc(self):
+        """Some angles have no obstacle - total coverage < arc span."""
+        # Obstacle only covers part of the arc
+        polygon = np.array([
+            [2.0, 0.2],
+            [3.0, 0.2],
+            [3.0, 0.6],
+            [2.0, 0.6],
+        ], dtype=np.float32)
+        
+        edges = self._make_edges_from_polygon(polygon)
+        obstacle_edges = {0: edges}
+        
+        # Arc that's wider than the obstacle
+        alpha_min = -0.5
+        alpha_max = 0.8
+        
+        events = build_events([polygon], alpha_min, alpha_max)
+        
+        coverage, min_dist, intervals = compute_coverage(
+            events, obstacle_edges, alpha_min, alpha_max
+        )
+        
+        # Total coverage should be less than arc span (there's a gap)
+        total_coverage = sum(coverage.values())
+        arc_span = alpha_max - alpha_min
+        assert total_coverage < arc_span
+        
+    def test_compute_coverage_min_distance_tracking(self):
+        """Verify minimum distances are correctly tracked per obstacle."""
+        # V-shaped obstacle with apex closer to origin
+        polygon = np.array([
+            [2.0, 0.0],    # Apex at distance 2
+            [4.0, 1.0],    # Arm at distance ~4.1
+            [4.0, -1.0],   # Arm at distance ~4.1
+        ], dtype=np.float32)
+        
+        edges = self._make_edges_from_polygon(polygon)
+        obstacle_edges = {0: edges}
+        
+        # Arc centered on the apex
+        alpha_min = -0.3
+        alpha_max = 0.3
+        
+        events = build_events([polygon], alpha_min, alpha_max)
+        
+        coverage, min_dist, intervals = compute_coverage(
+            events, obstacle_edges, alpha_min, alpha_max
+        )
+        
+        assert 0 in min_dist
+        # Minimum distance should be close to apex distance (2.0)
+        assert min_dist[0] < 3.0
+        
+    def test_compute_coverage_interval_boundaries(self):
+        """Verify correct attribution of coverage at interval edges."""
+        # Two adjacent obstacles
+        polygon0 = np.array([
+            [2.0, -0.01],
+            [3.0, -0.01],
+            [3.0, 0.5],
+            [2.0, 0.5],
+        ], dtype=np.float32)
+        
+        polygon1 = np.array([
+            [2.0, -0.5],
+            [3.0, -0.5],
+            [3.0, -0.01],
+            [2.0, -0.01],
+        ], dtype=np.float32)
+        
+        edges0 = self._make_edges_from_polygon(polygon0)
+        edges1 = self._make_edges_from_polygon(polygon1)
+        obstacle_edges = {0: edges0, 1: edges1}
+        
+        # Arc covering both
+        alpha_min = -0.3
+        alpha_max = 0.3
+        
+        events = build_events([polygon0, polygon1], alpha_min, alpha_max)
+        
+        coverage, min_dist, intervals = compute_coverage(
+            events, obstacle_edges, alpha_min, alpha_max
+        )
+        
+        # Both obstacles should have coverage
+        assert 0 in coverage or 1 in coverage
+        # The sum should approximately equal the arc span
+        total_coverage = sum(coverage.values())
+        arc_span = alpha_max - alpha_min
+        assert_allclose(total_coverage, arc_span, rtol=0.2)
+        
+    def test_compute_coverage_empty_arc(self):
+        """No obstacles visible should return empty dictionaries."""
+        # Obstacle outside the arc
+        polygon = np.array([
+            [2.0, 2.0],    # angle ≈ 0.78 rad (45°)
+            [3.0, 2.0],
+            [3.0, 3.0],
+            [2.0, 3.0],
+        ], dtype=np.float32)
+        
+        edges = self._make_edges_from_polygon(polygon)
+        obstacle_edges = {0: edges}
+        
+        # Arc that doesn't include the obstacle
+        alpha_min = -0.3
+        alpha_max = 0.3
+        
+        events = build_events([polygon], alpha_min, alpha_max)
+        
+        coverage, min_dist, intervals = compute_coverage(
+            events, obstacle_edges, alpha_min, alpha_max
+        )
+        
+        # No coverage expected in the queried arc
+        total_coverage = sum(coverage.values())
+        assert total_coverage == 0 or len(coverage) == 0
+        
+    def test_compute_coverage_returns_intervals(self):
+        """Verify that intervals are correctly returned for analysis."""
+        polygon = np.array([
+            [2.0, -0.5],
+            [4.0, -0.5],
+            [4.0, 0.5],
+            [2.0, 0.5],
+        ], dtype=np.float32)
+        
+        edges = self._make_edges_from_polygon(polygon)
+        obstacle_edges = {0: edges}
+        
+        alpha_min = -0.3
+        alpha_max = 0.3
+        
+        events = build_events([polygon], alpha_min, alpha_max)
+        
+        coverage, min_dist, intervals = compute_coverage(
+            events, obstacle_edges, alpha_min, alpha_max
+        )
+        
+        # Should have at least one interval
+        assert len(intervals) >= 1
+        
+        # All intervals should be IntervalResult instances
+        for interval in intervals:
+            assert isinstance(interval, IntervalResult)
+            assert interval.obstacle_id == 0
+            assert interval.min_distance > 0
+            
+    def test_compute_coverage_arc_crossing_pi(self):
+        """Test coverage computation when arc crosses ±π boundary."""
+        # Obstacle in the region near ±π
+        polygon = np.array([
+            [-3.0, 0.3],    # angle ≈ 3.04 rad
+            [-4.0, 0.3],
+            [-4.0, -0.3],
+            [-3.0, -0.3],   # angle ≈ -3.04 rad
+        ], dtype=np.float32)
+        
+        edges = self._make_edges_from_polygon(polygon)
+        obstacle_edges = {0: edges}
+        
+        # Arc crossing ±π (from 170° to -170°)
+        alpha_min = 170 * np.pi / 180   # ≈ 2.97 rad
+        alpha_max = -170 * np.pi / 180  # ≈ -2.97 rad
+        
+        events = build_events([polygon], alpha_min, alpha_max)
+        
+        coverage, min_dist, intervals = compute_coverage(
+            events, obstacle_edges, alpha_min, alpha_max
+        )
+        
+        # Should have coverage for the obstacle
+        assert 0 in coverage
+        assert coverage[0] > 0
+        
+        # The arc span is 20° = 0.349 rad (wrapping around)
+        expected_arc_span = (2 * np.pi) - alpha_min + alpha_max
+        assert coverage[0] <= expected_arc_span + 0.01
+        
+    def test_compute_coverage_empty_events(self):
+        """Empty event list should return empty coverage."""
+        obstacle_edges = {0: np.array([[[2, 0], [3, 0]]], dtype=np.float32)}
+        
+        coverage, min_dist, intervals = compute_coverage(
+            events=[],
+            obstacle_edges=obstacle_edges,
+            alpha_min=-0.5,
+            alpha_max=0.5
+        )
+        
+        assert len(coverage) == 0
+        assert len(min_dist) == 0
+        assert len(intervals) == 0
+        
+    def test_compute_coverage_empty_obstacles(self):
+        """Empty obstacle edges should return empty coverage."""
+        events = [AngularEvent(angle=0.0, obstacle_id=0, event_type='vertex')]
+        
+        coverage, min_dist, intervals = compute_coverage(
+            events=events,
+            obstacle_edges={},
+            alpha_min=-0.5,
+            alpha_max=0.5
+        )
+        
+        assert len(coverage) == 0
+        assert len(min_dist) == 0
+        assert len(intervals) == 0

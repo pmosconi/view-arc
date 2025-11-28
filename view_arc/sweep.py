@@ -324,12 +324,19 @@ def compute_coverage(
     obstacle_edges: Dict[int, NDArray[np.float32]],
     alpha_min: float,
     alpha_max: float
-) -> Tuple[Dict[int, float], Dict[int, float]]:
+) -> Tuple[Dict[int, float], Dict[int, float], List[IntervalResult]]:
     """
     Perform angular sweep to compute coverage for each obstacle.
     
     Processes events to establish intervals, resolves depth for each,
     and accumulates coverage statistics.
+    
+    The algorithm:
+    1. Determine remapped arc boundaries (for arcs crossing ±π)
+    2. Create intervals from consecutive events, plus boundary intervals
+    3. For each interval, determine which obstacles are active
+    4. Resolve depth for each interval to find the winning obstacle
+    5. Accumulate coverage and track minimum distances
     
     Parameters:
         events: Sorted list of angular events
@@ -338,11 +345,107 @@ def compute_coverage(
         alpha_max: End of arc
         
     Returns:
-        Tuple of (coverage_dict, min_distance_dict) where:
+        Tuple of (coverage_dict, min_distance_dict, intervals) where:
             coverage_dict: Maps obstacle_id to total angular coverage (radians)
             min_distance_dict: Maps obstacle_id to minimum distance encountered
+            intervals: List of IntervalResult for detailed analysis
     """
-    raise NotImplementedError
+    # Initialize result accumulators
+    coverage_dict: Dict[int, float] = {}
+    min_distance_dict: Dict[int, float] = {}
+    intervals: List[IntervalResult] = []
+    
+    # Determine if arc crosses ±π boundary
+    arc_wraps = alpha_min > alpha_max
+    
+    # Compute remapped boundary angles
+    remapped_alpha_min = alpha_min
+    remapped_alpha_max = alpha_max + 2 * np.pi if arc_wraps else alpha_max
+    
+    # Handle empty case
+    if not events or not obstacle_edges:
+        return coverage_dict, min_distance_dict, intervals
+    
+    # Build list of interval boundaries from events
+    # Include arc boundaries and all event angles
+    boundaries = [remapped_alpha_min]
+    for event in events:
+        if remapped_alpha_min < event.angle < remapped_alpha_max:
+            boundaries.append(event.angle)
+    boundaries.append(remapped_alpha_max)
+    
+    # Remove duplicates and sort
+    boundaries = sorted(set(boundaries))
+    
+    # Process each interval
+    for i in range(len(boundaries) - 1):
+        interval_start = boundaries[i]
+        interval_end = boundaries[i + 1]
+        
+        # Skip degenerate intervals
+        if interval_end - interval_start < 1e-10:
+            continue
+        
+        # Find active obstacles at the midpoint of this interval
+        # Use original angles for edge intersection checks
+        midpoint = (interval_start + interval_end) / 2
+        
+        # Convert midpoint back to original angle space if arc wraps
+        query_angle = midpoint
+        if arc_wraps and midpoint > np.pi:
+            query_angle = midpoint - 2 * np.pi
+        
+        # Determine active obstacles for this interval
+        active_obstacles: Dict[int, NDArray[np.float32]] = {}
+        for obstacle_id, edges in obstacle_edges.items():
+            # Check if any edge is intersected at the query angle
+            for edge in edges:
+                dist = intersect_ray_segment(query_angle, edge[0], edge[1], 1e10)
+                if dist is not None:
+                    # This obstacle is active at this angle
+                    active_obstacles[obstacle_id] = edges
+                    break
+        
+        # Resolve this interval to find the winner
+        if active_obstacles:
+            # Convert interval to original angle space for resolve_interval
+            query_start = interval_start
+            query_end = interval_end
+            if arc_wraps:
+                if query_start > np.pi:
+                    query_start -= 2 * np.pi
+                if query_end > np.pi:
+                    query_end -= 2 * np.pi
+            
+            result = resolve_interval(
+                interval_start=query_start,
+                interval_end=query_end,
+                active_obstacles=active_obstacles,
+                num_samples=5
+            )
+            
+            if result is not None:
+                # Update coverage for the winning obstacle
+                angular_span = interval_end - interval_start
+                if result.obstacle_id not in coverage_dict:
+                    coverage_dict[result.obstacle_id] = 0.0
+                coverage_dict[result.obstacle_id] += angular_span
+                
+                # Update minimum distance
+                if result.obstacle_id not in min_distance_dict:
+                    min_distance_dict[result.obstacle_id] = float('inf')
+                if result.min_distance < min_distance_dict[result.obstacle_id]:
+                    min_distance_dict[result.obstacle_id] = result.min_distance
+                
+                # Store interval result with remapped angles for consistency
+                intervals.append(IntervalResult(
+                    obstacle_id=result.obstacle_id,
+                    min_distance=result.min_distance,
+                    angle_start=interval_start,
+                    angle_end=interval_end
+                ))
+    
+    return coverage_dict, min_distance_dict, intervals
 
 
 def get_active_edges(

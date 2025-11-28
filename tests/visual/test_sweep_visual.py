@@ -32,6 +32,7 @@ from view_arc.sweep import (
     get_active_edges,
     build_events,
     resolve_interval,
+    compute_coverage,
 )
 from view_arc.geometry import to_polar, intersect_ray_segment
 
@@ -80,7 +81,7 @@ class TestSweepVisual:
                 ax.annotate(f'v{i}', (x, y), textcoords="offset points", 
                            xytext=(5, 5), fontsize=8, color=edgecolor)
 
-    def _draw_ray(self, ax, angle, length=4, color='red', label=None, linewidth=2):
+    def _draw_ray(self, ax, angle, length=4.0, color='red', label=None, linewidth=2):
         """Draw a ray from origin at given angle."""
         x_end = length * np.cos(angle)
         y_end = length * np.sin(angle)
@@ -1079,3 +1080,738 @@ class TestSweepVisual:
         fig.suptitle("Interval Resolution: No Intersection", fontsize=14, fontweight='bold')
         plt.tight_layout()
         save_figure(fig, "sweep_resolve_interval_no_hit")
+
+    # =========================================================================
+    # Test: compute_coverage() - Step 3.3
+    # =========================================================================
+
+    def test_visual_compute_coverage_single_obstacle(self):
+        """Visual: Coverage computation for a single obstacle occupying the arc."""
+        fig, axes = plt.subplots(1, 3, figsize=(18, 6))
+        
+        # Square obstacle centered on x-axis
+        polygon = np.array([
+            [2.0, -1.0],
+            [4.0, -1.0],
+            [4.0, 1.0],
+            [2.0, 1.0],
+        ], dtype=np.float32)
+        
+        edges = self._polygon_to_edges(polygon)
+        obstacle_edges = {0: edges}
+        
+        alpha_min = -0.4
+        alpha_max = 0.4
+        
+        # Build events
+        events = build_events([polygon], alpha_min, alpha_max)
+        
+        # Compute coverage
+        coverage, min_dist, intervals = compute_coverage(
+            events, obstacle_edges, alpha_min, alpha_max
+        )
+        
+        # Left plot: Spatial view
+        ax = axes[0]
+        self._setup_axes(ax, "Spatial View", xlim=(-1, 6), ylim=(-3, 3))
+        
+        # Draw arc sector
+        self._draw_arc_sector(ax, alpha_min, alpha_max, radius=5, 
+                             color='lightyellow', alpha=0.3, label='FOV Arc')
+        
+        # Draw arc boundaries
+        self._draw_ray(ax, alpha_min, length=5, color='orange', linewidth=1, label='α_min')
+        self._draw_ray(ax, alpha_max, length=5, color='orange', linewidth=1, label='α_max')
+        
+        # Draw polygon
+        self._draw_polygon(ax, polygon, color='lightblue', alpha=0.5, 
+                          edgecolor='blue', label='Obstacle 0')
+        
+        # Draw interval rays
+        for interval in intervals:
+            mid_angle = (interval.angle_start + interval.angle_end) / 2
+            self._draw_ray(ax, mid_angle, length=interval.min_distance, 
+                          color='green', linewidth=1)
+        
+        ax.legend(loc='upper right', fontsize=8)
+        
+        # Middle plot: Angular coverage visualization
+        ax = axes[1]
+        ax.set_xlim(-0.6, 0.6)
+        ax.set_ylim(-0.5, 1.5)
+        ax.set_xlabel('Angle (radians)')
+        ax.set_title('Angular Coverage by Obstacle')
+        
+        # Draw arc boundaries
+        ax.axvline(x=alpha_min, color='orange', linewidth=2, linestyle='--', label='α_min')
+        ax.axvline(x=alpha_max, color='orange', linewidth=2, linestyle='--', label='α_max')
+        
+        # Draw intervals as horizontal bars
+        colors = [plt.get_cmap('tab10')(i) for i in range(10)]
+        for interval in intervals:
+            color = colors[interval.obstacle_id % len(colors)]
+            ax.barh(y=interval.obstacle_id, 
+                   width=interval.angle_end - interval.angle_start,
+                   left=interval.angle_start, 
+                   height=0.3, 
+                   color=color, alpha=0.7, edgecolor='black')
+        
+        ax.set_yticks([0])
+        ax.set_yticklabels(['Obstacle 0'])
+        ax.legend(loc='upper right', fontsize=8)
+        ax.grid(True, alpha=0.3)
+        
+        # Right plot: Coverage statistics
+        ax = axes[2]
+        ax.axis('off')
+        ax.set_title('Coverage Statistics', fontsize=12, fontweight='bold')
+        
+        arc_span = alpha_max - alpha_min
+        stats_text = f"""
+Arc Range: [{np.rad2deg(alpha_min):.1f}°, {np.rad2deg(alpha_max):.1f}°]
+Arc Span: {arc_span:.3f} rad ({np.rad2deg(arc_span):.1f}°)
+
+Coverage Results:
+"""
+        for oid, cov in coverage.items():
+            pct = (cov / arc_span) * 100 if arc_span > 0 else 0
+            dist = min_dist.get(oid, float('inf'))
+            stats_text += f"  Obstacle {oid}: {cov:.3f} rad ({pct:.1f}%), min_dist={dist:.2f}\n"
+        
+        stats_text += f"\nTotal Intervals: {len(intervals)}"
+        
+        ax.text(0.1, 0.8, stats_text, transform=ax.transAxes, fontsize=11,
+               verticalalignment='top', family='monospace',
+               bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.8))
+        
+        fig.suptitle("compute_coverage(): Single Obstacle Full Coverage", 
+                    fontsize=14, fontweight='bold')
+        plt.tight_layout()
+        save_figure(fig, "sweep_coverage_single_obstacle")
+
+    def test_visual_compute_coverage_two_obstacles_no_occlusion(self):
+        """Visual: Coverage with two obstacles side by side (no occlusion)."""
+        fig, axes = plt.subplots(1, 3, figsize=(18, 6))
+        
+        # Upper obstacle
+        polygon0 = np.array([
+            [2.0, 0.5],
+            [3.5, 0.5],
+            [3.5, 1.8],
+            [2.0, 1.8],
+        ], dtype=np.float32)
+        
+        # Lower obstacle
+        polygon1 = np.array([
+            [2.0, -1.8],
+            [3.5, -1.8],
+            [3.5, -0.5],
+            [2.0, -0.5],
+        ], dtype=np.float32)
+        
+        edges0 = self._polygon_to_edges(polygon0)
+        edges1 = self._polygon_to_edges(polygon1)
+        obstacle_edges = {0: edges0, 1: edges1}
+        
+        alpha_min = -0.8
+        alpha_max = 0.8
+        
+        # Build events
+        events = build_events([polygon0, polygon1], alpha_min, alpha_max)
+        
+        # Compute coverage
+        coverage, min_dist, intervals = compute_coverage(
+            events, obstacle_edges, alpha_min, alpha_max
+        )
+        
+        # Left plot: Spatial view
+        ax = axes[0]
+        self._setup_axes(ax, "Spatial View: Side-by-Side Obstacles", xlim=(-1, 5), ylim=(-3, 3))
+        
+        # Draw arc sector
+        self._draw_arc_sector(ax, alpha_min, alpha_max, radius=4, 
+                             color='lightyellow', alpha=0.2, label='FOV Arc')
+        
+        # Draw obstacles with colors matching coverage chart
+        colors = ['#1f77b4', '#ff7f0e']  # tab10 blue and orange
+        self._draw_polygon(ax, polygon0, color=colors[0], alpha=0.5, 
+                          edgecolor=colors[0], label='Obstacle 0 (upper)')
+        self._draw_polygon(ax, polygon1, color=colors[1], alpha=0.5, 
+                          edgecolor=colors[1], label='Obstacle 1 (lower)')
+        
+        # Draw arc boundaries
+        self._draw_ray(ax, alpha_min, length=4.5, color='orange', linewidth=1)
+        self._draw_ray(ax, alpha_max, length=4.5, color='orange', linewidth=1)
+        
+        ax.legend(loc='upper right', fontsize=8)
+        
+        # Middle plot: Angular coverage visualization
+        ax = axes[1]
+        ax.set_xlim(-1.0, 1.0)
+        ax.set_ylim(-0.5, 2.5)
+        ax.set_xlabel('Angle (radians)')
+        ax.set_ylabel('Obstacle ID')
+        ax.set_title('Angular Coverage by Obstacle')
+        
+        # Draw arc boundaries
+        ax.axvline(x=alpha_min, color='orange', linewidth=2, linestyle='--')
+        ax.axvline(x=alpha_max, color='orange', linewidth=2, linestyle='--')
+        
+        # Draw intervals
+        for interval in intervals:
+            color = colors[interval.obstacle_id]
+            ax.barh(y=interval.obstacle_id, 
+                   width=interval.angle_end - interval.angle_start,
+                   left=interval.angle_start, 
+                   height=0.4, 
+                   color=color, alpha=0.7, edgecolor='black')
+        
+        ax.set_yticks([0, 1])
+        ax.set_yticklabels(['Obstacle 0\n(upper)', 'Obstacle 1\n(lower)'])
+        ax.grid(True, alpha=0.3)
+        
+        # Right plot: Pie chart of coverage
+        ax = axes[2]
+        ax.set_title('Coverage Distribution', fontsize=12, fontweight='bold')
+        
+        arc_span = alpha_max - alpha_min
+        coverage_values = [coverage.get(0, 0), coverage.get(1, 0)]
+        uncovered = arc_span - sum(coverage_values)
+        if uncovered < 0:
+            uncovered = 0
+        
+        labels = [f'Obstacle 0\n({coverage_values[0]:.2f} rad)',
+                 f'Obstacle 1\n({coverage_values[1]:.2f} rad)']
+        pie_colors = colors
+        
+        if uncovered > 0.01:
+            coverage_values.append(uncovered)
+            labels.append(f'Uncovered\n({uncovered:.2f} rad)')
+            pie_colors = colors + ['lightgray']
+        
+        wedges, texts, autotexts = ax.pie(coverage_values, labels=labels, 
+                                          colors=pie_colors, autopct='%1.1f%%',
+                                          startangle=90)
+        ax.axis('equal')
+        
+        fig.suptitle("compute_coverage(): Two Obstacles Side-by-Side (No Occlusion)", 
+                    fontsize=14, fontweight='bold')
+        plt.tight_layout()
+        save_figure(fig, "sweep_coverage_two_obstacles_no_occlusion")
+
+    def test_visual_compute_coverage_occlusion(self):
+        """Visual: Coverage with occlusion - closer obstacle wins."""
+        fig, axes = plt.subplots(2, 2, figsize=(14, 12))
+        
+        # Far obstacle (will be occluded)
+        polygon_far = np.array([
+            [4.0, -1.2],
+            [6.0, -1.2],
+            [6.0, 1.2],
+            [4.0, 1.2],
+        ], dtype=np.float32)
+        
+        # Close obstacle (occludes the far one in overlapping region)
+        polygon_close = np.array([
+            [2.0, -0.6],
+            [3.5, -0.6],
+            [3.5, 0.6],
+            [2.0, 0.6],
+        ], dtype=np.float32)
+        
+        edges_far = self._polygon_to_edges(polygon_far)
+        edges_close = self._polygon_to_edges(polygon_close)
+        obstacle_edges = {0: edges_far, 1: edges_close}
+        
+        alpha_min = -0.35
+        alpha_max = 0.35
+        
+        # Build events
+        events = build_events([polygon_far, polygon_close], alpha_min, alpha_max)
+        
+        # Compute coverage
+        coverage, min_dist, intervals = compute_coverage(
+            events, obstacle_edges, alpha_min, alpha_max
+        )
+        
+        # Top-left: Spatial view
+        ax = axes[0, 0]
+        self._setup_axes(ax, "Spatial View: Occlusion Scenario", xlim=(-1, 8), ylim=(-2.5, 2.5))
+        
+        # Draw arc sector
+        self._draw_arc_sector(ax, alpha_min, alpha_max, radius=7, 
+                             color='lightyellow', alpha=0.2, label='FOV Arc')
+        
+        # Draw obstacles
+        colors = ['#d62728', '#2ca02c']  # red for far, green for close
+        self._draw_polygon(ax, polygon_far, color=colors[0], alpha=0.4, 
+                          edgecolor=colors[0], label='Obstacle 0 (far)')
+        self._draw_polygon(ax, polygon_close, color=colors[1], alpha=0.6, 
+                          edgecolor=colors[1], label='Obstacle 1 (close)')
+        
+        # Draw sample rays showing occlusion
+        sample_angles = np.linspace(alpha_min, alpha_max, 7)
+        for angle in sample_angles:
+            # Find closest hit
+            min_hit = None
+            for oid, edges in obstacle_edges.items():
+                for edge in edges:
+                    dist = intersect_ray_segment(angle, edge[0], edge[1], 10.0)
+                    if dist is not None and (min_hit is None or dist < min_hit):
+                        min_hit = dist
+            
+            if min_hit:
+                hit_x = min_hit * np.cos(angle)
+                hit_y = min_hit * np.sin(angle)
+                ax.plot([0, hit_x], [0, hit_y], 'g-', linewidth=1, alpha=0.6)
+                ax.scatter([hit_x], [hit_y], color='green', s=40, zorder=15, marker='o')
+        
+        ax.legend(loc='upper right', fontsize=8)
+        
+        # Top-right: Angular coverage
+        ax = axes[0, 1]
+        ax.set_xlim(-0.5, 0.5)
+        ax.set_ylim(-0.5, 2.5)
+        ax.set_xlabel('Angle (radians)')
+        ax.set_title('Angular Coverage (Occlusion Resolved)')
+        
+        ax.axvline(x=alpha_min, color='orange', linewidth=2, linestyle='--')
+        ax.axvline(x=alpha_max, color='orange', linewidth=2, linestyle='--')
+        
+        for interval in intervals:
+            color = colors[interval.obstacle_id]
+            ax.barh(y=interval.obstacle_id, 
+                   width=interval.angle_end - interval.angle_start,
+                   left=interval.angle_start, 
+                   height=0.4, 
+                   color=color, alpha=0.7, edgecolor='black')
+        
+        ax.set_yticks([0, 1])
+        ax.set_yticklabels(['Obstacle 0\n(far)', 'Obstacle 1\n(close, winner)'])
+        ax.grid(True, alpha=0.3)
+        
+        # Bottom-left: Distance comparison
+        ax = axes[1, 0]
+        ax.set_title('Distance Comparison', fontsize=12)
+        
+        bar_width = 0.35
+        x = np.array([0, 1])
+        
+        min_distances = [min_dist.get(0, 0), min_dist.get(1, 0)]
+        bars = ax.bar(x, min_distances, bar_width, color=colors, alpha=0.7, edgecolor='black')
+        
+        ax.set_xticks(x)
+        ax.set_xticklabels(['Obstacle 0\n(far)', 'Obstacle 1\n(close)'])
+        ax.set_ylabel('Minimum Distance')
+        
+        for bar, dist in zip(bars, min_distances):
+            if dist > 0:
+                ax.annotate(f'{dist:.2f}', xy=(bar.get_x() + bar.get_width()/2, dist),
+                           ha='center', va='bottom', fontsize=11, fontweight='bold')
+        
+        # Bottom-right: Coverage summary
+        ax = axes[1, 1]
+        ax.axis('off')
+        ax.set_title('Coverage Summary', fontsize=12, fontweight='bold')
+        
+        arc_span = alpha_max - alpha_min
+        summary_text = f"""
+Arc Span: {arc_span:.3f} rad ({np.rad2deg(arc_span):.1f}°)
+
+Obstacle 0 (far, red):
+  Coverage: {coverage.get(0, 0):.4f} rad ({coverage.get(0, 0)/arc_span*100:.1f}%)
+  Min Distance: {min_dist.get(0, float('inf')):.2f}
+
+Obstacle 1 (close, green):
+  Coverage: {coverage.get(1, 0):.4f} rad ({coverage.get(1, 0)/arc_span*100:.1f}%)
+  Min Distance: {min_dist.get(1, float('inf')):.2f}
+
+Total Intervals: {len(intervals)}
+
+Note: The closer obstacle (1) dominates the
+overlapping angular region due to occlusion.
+"""
+        ax.text(0.1, 0.9, summary_text, transform=ax.transAxes, fontsize=10,
+               verticalalignment='top', family='monospace',
+               bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.8))
+        
+        fig.suptitle("compute_coverage(): Occlusion - Closer Obstacle Wins", 
+                    fontsize=14, fontweight='bold')
+        plt.tight_layout()
+        save_figure(fig, "sweep_coverage_occlusion")
+
+    def test_visual_compute_coverage_gap_in_arc(self):
+        """Visual: Coverage with a gap - some angles have no obstacle."""
+        fig, axes = plt.subplots(1, 3, figsize=(18, 6))
+        
+        # Obstacle that only covers part of the arc (upper region)
+        polygon = np.array([
+            [2.0, 0.5],
+            [4.0, 0.5],
+            [4.0, 2.0],
+            [2.0, 2.0],
+        ], dtype=np.float32)
+        
+        edges = self._polygon_to_edges(polygon)
+        obstacle_edges = {0: edges}
+        
+        # Wide arc that extends beyond the obstacle
+        alpha_min = -0.5
+        alpha_max = 0.9
+        
+        # Build events
+        events = build_events([polygon], alpha_min, alpha_max)
+        
+        # Compute coverage
+        coverage, min_dist, intervals = compute_coverage(
+            events, obstacle_edges, alpha_min, alpha_max
+        )
+        
+        # Left plot: Spatial view
+        ax = axes[0]
+        self._setup_axes(ax, "Spatial View: Partial Coverage", xlim=(-1, 6), ylim=(-2, 4))
+        
+        # Draw arc sector
+        self._draw_arc_sector(ax, alpha_min, alpha_max, radius=5, 
+                             color='lightyellow', alpha=0.3, label='FOV Arc')
+        
+        # Draw obstacle
+        self._draw_polygon(ax, polygon, color='lightblue', alpha=0.5, 
+                          edgecolor='blue', label='Obstacle 0')
+        
+        # Draw arc boundaries
+        self._draw_ray(ax, alpha_min, length=5, color='orange', linewidth=1, label='α_min')
+        self._draw_ray(ax, alpha_max, length=5, color='orange', linewidth=1, label='α_max')
+        
+        # Draw rays showing coverage and gaps
+        sample_angles = np.linspace(alpha_min, alpha_max, 11)
+        for angle in sample_angles:
+            min_hit = None
+            for edge in edges:
+                dist = intersect_ray_segment(angle, edge[0], edge[1], 10.0)
+                if dist is not None and (min_hit is None or dist < min_hit):
+                    min_hit = dist
+            
+            if min_hit:
+                hit_x = min_hit * np.cos(angle)
+                hit_y = min_hit * np.sin(angle)
+                ax.plot([0, hit_x], [0, hit_y], 'g-', linewidth=1.5, alpha=0.7)
+                ax.scatter([hit_x], [hit_y], color='green', s=50, zorder=15)
+            else:
+                # Draw miss ray (gray, extends to arc edge)
+                ax.plot([0, 5*np.cos(angle)], [0, 5*np.sin(angle)], 
+                       'gray', linewidth=1, alpha=0.4, linestyle='--')
+        
+        ax.legend(loc='upper right', fontsize=8)
+        
+        # Middle plot: Angular coverage
+        ax = axes[1]
+        arc_span = alpha_max - alpha_min
+        
+        ax.set_xlim(-0.7, 1.1)
+        ax.set_ylim(-0.3, 1.0)
+        ax.set_xlabel('Angle (radians)')
+        ax.set_title('Coverage vs Gap Analysis')
+        
+        # Draw arc boundaries
+        ax.axvline(x=alpha_min, color='orange', linewidth=2, linestyle='--', label='Arc bounds')
+        ax.axvline(x=alpha_max, color='orange', linewidth=2, linestyle='--')
+        
+        # Draw full arc span as background
+        ax.barh(y=0.5, width=arc_span, left=alpha_min, height=0.15, 
+               color='lightgray', alpha=0.5, edgecolor='black', label='Full arc')
+        
+        # Draw covered intervals
+        for interval in intervals:
+            ax.barh(y=0.3, 
+                   width=interval.angle_end - interval.angle_start,
+                   left=interval.angle_start, 
+                   height=0.15, 
+                   color='blue', alpha=0.7, edgecolor='black', label='Covered')
+        
+        ax.set_yticks([0.3, 0.5])
+        ax.set_yticklabels(['Covered', 'Full Arc'])
+        ax.legend(loc='upper right', fontsize=8)
+        ax.grid(True, alpha=0.3)
+        
+        # Right plot: Coverage statistics
+        ax = axes[2]
+        
+        total_coverage = sum(coverage.values())
+        gap = arc_span - total_coverage
+        
+        ax.set_title('Coverage Breakdown', fontsize=12, fontweight='bold')
+        
+        # Stacked bar showing covered vs gap
+        ax.barh(y=0, width=total_coverage, left=0, height=0.5, 
+               color='blue', alpha=0.7, edgecolor='black', label='Covered')
+        ax.barh(y=0, width=gap, left=total_coverage, height=0.5, 
+               color='lightgray', alpha=0.7, edgecolor='black', label='Gap')
+        
+        ax.set_xlim(0, arc_span * 1.1)
+        ax.set_ylim(-0.5, 0.8)
+        ax.set_xlabel('Angular Span (radians)')
+        ax.set_yticks([])
+        
+        # Annotate values
+        ax.annotate(f'Covered: {total_coverage:.3f} rad\n({total_coverage/arc_span*100:.1f}%)', 
+                   (total_coverage/2, 0.35), ha='center', fontsize=10, fontweight='bold')
+        ax.annotate(f'Gap: {gap:.3f} rad\n({gap/arc_span*100:.1f}%)', 
+                   (total_coverage + gap/2, 0.35), ha='center', fontsize=10, color='gray')
+        
+        ax.legend(loc='upper right', fontsize=9)
+        
+        fig.suptitle("compute_coverage(): Partial Coverage with Gap", 
+                    fontsize=14, fontweight='bold')
+        plt.tight_layout()
+        save_figure(fig, "sweep_coverage_gap")
+
+    def test_visual_compute_coverage_arc_crossing_pi(self):
+        """Visual: Coverage computation when arc crosses ±π boundary."""
+        fig, axes = plt.subplots(1, 3, figsize=(18, 6))
+        
+        # Obstacle near ±π boundary
+        polygon = np.array([
+            [-2.5, 0.4],
+            [-4.0, 0.4],
+            [-4.0, -0.4],
+            [-2.5, -0.4],
+        ], dtype=np.float32)
+        
+        edges = self._polygon_to_edges(polygon)
+        obstacle_edges = {0: edges}
+        
+        # Arc crossing ±π (from 160° to -160°)
+        alpha_min = 160 * np.pi / 180   # ≈ 2.79 rad
+        alpha_max = -160 * np.pi / 180  # ≈ -2.79 rad
+        
+        # Build events
+        events = build_events([polygon], alpha_min, alpha_max)
+        
+        # Compute coverage
+        coverage, min_dist, intervals = compute_coverage(
+            events, obstacle_edges, alpha_min, alpha_max
+        )
+        
+        # Left plot: Spatial view
+        ax = axes[0]
+        self._setup_axes(ax, "Arc Crossing ±π Boundary", xlim=(-5, 2), ylim=(-3, 3))
+        
+        # Draw arc sector (wraps around)
+        self._draw_arc_sector(ax, alpha_min, alpha_max, radius=4, 
+                             color='lightyellow', alpha=0.3, label='FOV Arc')
+        
+        # Draw obstacle
+        self._draw_polygon(ax, polygon, color='lightblue', alpha=0.5, 
+                          edgecolor='blue', label='Obstacle 0')
+        
+        # Draw arc boundaries and π line
+        self._draw_ray(ax, alpha_min, length=4.5, color='orange', linewidth=2, label='α_min (160°)')
+        self._draw_ray(ax, alpha_max, length=4.5, color='red', linewidth=2, label='α_max (-160°)')
+        self._draw_ray(ax, np.pi, length=4.5, color='purple', linewidth=1, label='±π line')
+        self._draw_ray(ax, -np.pi, length=4.5, color='purple', linewidth=1)
+        
+        ax.legend(loc='upper right', fontsize=8)
+        
+        # Middle plot: Angular view (unwrapped)
+        ax = axes[1]
+        ax.set_xlim(-4, 5)
+        ax.set_ylim(-0.5, 1.5)
+        ax.set_xlabel('Angle (radians)')
+        ax.set_title('Angular View (Remapped for Continuity)')
+        
+        # Mark key angles
+        ax.axvline(x=-np.pi, color='purple', linewidth=2, linestyle=':', label='-π')
+        ax.axvline(x=np.pi, color='purple', linewidth=2, linestyle=':', label='+π')
+        ax.axvline(x=alpha_min, color='orange', linewidth=2, linestyle='--', label='α_min')
+        
+        # Remapped alpha_max
+        remapped_alpha_max = alpha_max + 2 * np.pi
+        ax.axvline(x=remapped_alpha_max, color='red', linewidth=2, linestyle='--', 
+                  label=f'α_max (remapped)')
+        
+        # Shade arc region
+        ax.axvspan(alpha_min, np.pi, color='yellow', alpha=0.2)
+        ax.axvspan(-np.pi + 2*np.pi, remapped_alpha_max, color='yellow', alpha=0.2)
+        
+        # Draw intervals
+        for interval in intervals:
+            ax.barh(y=0, 
+                   width=interval.angle_end - interval.angle_start,
+                   left=interval.angle_start, 
+                   height=0.3, 
+                   color='blue', alpha=0.7, edgecolor='black')
+        
+        ax.legend(loc='upper left', fontsize=8)
+        ax.grid(True, alpha=0.3)
+        
+        # Right plot: Coverage statistics
+        ax = axes[2]
+        ax.axis('off')
+        ax.set_title('Coverage Statistics', fontsize=12, fontweight='bold')
+        
+        # Compute arc span (wrapping case)
+        arc_span = (2 * np.pi) - alpha_min + alpha_max
+        if arc_span < 0:
+            arc_span += 2 * np.pi
+        
+        stats_text = f"""
+Arc Configuration:
+  α_min: {alpha_min:.3f} rad ({np.rad2deg(alpha_min):.1f}°)
+  α_max: {alpha_max:.3f} rad ({np.rad2deg(alpha_max):.1f}°)
+  Arc crosses ±π boundary: Yes
+  Arc Span: {arc_span:.3f} rad ({np.rad2deg(arc_span):.1f}°)
+
+Coverage Results:
+  Obstacle 0: {coverage.get(0, 0):.4f} rad
+  Coverage %: {coverage.get(0, 0)/arc_span*100:.1f}%
+  Min Distance: {min_dist.get(0, float('inf')):.2f}
+
+Events: {len(events)}
+Intervals: {len(intervals)}
+"""
+        ax.text(0.1, 0.9, stats_text, transform=ax.transAxes, fontsize=10,
+               verticalalignment='top', family='monospace',
+               bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.8))
+        
+        fig.suptitle("compute_coverage(): Arc Crossing ±π Discontinuity", 
+                    fontsize=14, fontweight='bold')
+        plt.tight_layout()
+        save_figure(fig, "sweep_coverage_arc_crossing_pi")
+
+    def test_visual_compute_coverage_multiple_intervals(self):
+        """Visual: Coverage with multiple intervals from complex obstacle arrangement."""
+        fig, axes = plt.subplots(2, 2, figsize=(14, 12))
+        
+        # Three obstacles at different positions
+        polygon0 = np.array([
+            [2.0, 1.0],
+            [3.0, 1.0],
+            [3.0, 2.5],
+            [2.0, 2.5],
+        ], dtype=np.float32)
+        
+        polygon1 = np.array([
+            [3.0, -0.5],
+            [5.0, -0.5],
+            [5.0, 0.5],
+            [3.0, 0.5],
+        ], dtype=np.float32)
+        
+        polygon2 = np.array([
+            [2.0, -2.5],
+            [3.5, -2.5],
+            [3.5, -1.0],
+            [2.0, -1.0],
+        ], dtype=np.float32)
+        
+        edges0 = self._polygon_to_edges(polygon0)
+        edges1 = self._polygon_to_edges(polygon1)
+        edges2 = self._polygon_to_edges(polygon2)
+        obstacle_edges = {0: edges0, 1: edges1, 2: edges2}
+        
+        alpha_min = -1.0
+        alpha_max = 1.0
+        
+        # Build events
+        events = build_events([polygon0, polygon1, polygon2], alpha_min, alpha_max)
+        
+        # Compute coverage
+        coverage, min_dist, intervals = compute_coverage(
+            events, obstacle_edges, alpha_min, alpha_max
+        )
+        
+        # Top-left: Spatial view
+        ax = axes[0, 0]
+        self._setup_axes(ax, "Three Obstacles in Arc", xlim=(-1, 6), ylim=(-4, 4))
+        
+        # Draw arc sector
+        self._draw_arc_sector(ax, alpha_min, alpha_max, radius=5, 
+                             color='lightyellow', alpha=0.2)
+        
+        # Draw obstacles with distinct colors
+        colors = ['#1f77b4', '#ff7f0e', '#2ca02c']
+        self._draw_polygon(ax, polygon0, color=colors[0], alpha=0.5, 
+                          edgecolor=colors[0], label='Obstacle 0')
+        self._draw_polygon(ax, polygon1, color=colors[1], alpha=0.5, 
+                          edgecolor=colors[1], label='Obstacle 1')
+        self._draw_polygon(ax, polygon2, color=colors[2], alpha=0.5, 
+                          edgecolor=colors[2], label='Obstacle 2')
+        
+        # Draw arc boundaries
+        self._draw_ray(ax, alpha_min, length=5.5, color='orange', linewidth=1)
+        self._draw_ray(ax, alpha_max, length=5.5, color='orange', linewidth=1)
+        
+        ax.legend(loc='upper right', fontsize=8)
+        
+        # Top-right: Angular intervals
+        ax = axes[0, 1]
+        ax.set_xlim(-1.2, 1.2)
+        ax.set_ylim(-0.5, 3.5)
+        ax.set_xlabel('Angle (radians)')
+        ax.set_ylabel('Obstacle ID')
+        ax.set_title('Angular Intervals by Obstacle')
+        
+        ax.axvline(x=alpha_min, color='orange', linewidth=2, linestyle='--')
+        ax.axvline(x=alpha_max, color='orange', linewidth=2, linestyle='--')
+        
+        for interval in intervals:
+            color = colors[interval.obstacle_id]
+            ax.barh(y=interval.obstacle_id, 
+                   width=interval.angle_end - interval.angle_start,
+                   left=interval.angle_start, 
+                   height=0.4, 
+                   color=color, alpha=0.7, edgecolor='black')
+        
+        ax.set_yticks([0, 1, 2])
+        ax.set_yticklabels(['Obstacle 0', 'Obstacle 1', 'Obstacle 2'])
+        ax.grid(True, alpha=0.3)
+        
+        # Bottom-left: Coverage bar chart
+        ax = axes[1, 0]
+        ax.set_title('Coverage by Obstacle', fontsize=12)
+        
+        obstacle_ids = sorted(coverage.keys())
+        coverage_values = [coverage[oid] for oid in obstacle_ids]
+        bar_colors = [colors[oid] for oid in obstacle_ids]
+        
+        bars = ax.bar(obstacle_ids, coverage_values, color=bar_colors, 
+                     alpha=0.7, edgecolor='black')
+        
+        ax.set_xticks(obstacle_ids)
+        ax.set_xticklabels([f'Obstacle {oid}' for oid in obstacle_ids])
+        ax.set_ylabel('Coverage (radians)')
+        
+        for bar, val in zip(bars, coverage_values):
+            ax.annotate(f'{val:.3f}', xy=(bar.get_x() + bar.get_width()/2, val),
+                       ha='center', va='bottom', fontsize=10)
+        
+        # Bottom-right: Statistics table
+        ax = axes[1, 1]
+        ax.axis('off')
+        ax.set_title('Coverage Summary', fontsize=12, fontweight='bold')
+        
+        arc_span = alpha_max - alpha_min
+        total_coverage = sum(coverage.values())
+        
+        table_text = f"""
+Arc Span: {arc_span:.3f} rad ({np.rad2deg(arc_span):.1f}°)
+Total Covered: {total_coverage:.3f} rad ({total_coverage/arc_span*100:.1f}%)
+Total Intervals: {len(intervals)}
+
+Obstacle Details:
+"""
+        for oid in sorted(coverage.keys()):
+            cov = coverage[oid]
+            dist = min_dist.get(oid, float('inf'))
+            pct = cov / arc_span * 100
+            table_text += f"  [{oid}] Coverage: {cov:.3f} rad ({pct:.1f}%), Min dist: {dist:.2f}\n"
+        
+        ax.text(0.1, 0.9, table_text, transform=ax.transAxes, fontsize=10,
+               verticalalignment='top', family='monospace',
+               bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.8))
+        
+        fig.suptitle("compute_coverage(): Multiple Obstacles with Multiple Intervals", 
+                    fontsize=14, fontweight='bold')
+        plt.tight_layout()
+        save_figure(fig, "sweep_coverage_multiple_intervals")
