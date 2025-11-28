@@ -7,7 +7,7 @@ from typing import List, Tuple, Dict, Optional
 import numpy as np
 from numpy.typing import NDArray
 
-from view_arc.geometry import normalize_angle, to_polar, intersect_ray_segment
+from view_arc.geometry import normalize_angle, to_polar, intersect_ray_segment, handle_angle_discontinuity
 
 
 @dataclass(order=True)
@@ -62,6 +62,8 @@ def build_events(
     Construct sorted event list from clipped polygons.
     
     Creates events for vertices and edge crossings of angular boundaries.
+    When the arc crosses ±π (alpha_min > alpha_max), angles are remapped
+    to a continuous range for proper sorting.
     
     Parameters:
         clipped_polygons: List of clipped polygons in Cartesian (x, y) form
@@ -69,9 +71,17 @@ def build_events(
         alpha_max: Maximum arc angle
         
     Returns:
-        Sorted list of AngularEvent objects
+        Sorted list of AngularEvent objects with remapped angles when arc wraps
     """
     events: List[AngularEvent] = []
+    
+    # Determine if arc crosses ±π boundary
+    arc_wraps = alpha_min > alpha_max
+    
+    # Compute remapped boundary angles for edge-crossing events
+    # When arc wraps, alpha_max needs to be lifted by 2π to maintain order
+    remapped_alpha_min = alpha_min
+    remapped_alpha_max = alpha_max + 2 * np.pi if arc_wraps else alpha_max
     
     for obstacle_id, polygon in enumerate(clipped_polygons):
         if polygon is None or len(polygon) < 3:
@@ -81,14 +91,19 @@ def build_events(
         radii, angles = to_polar(polygon)
         n_vertices = len(polygon)
         
+        # Remap angles if arc crosses ±π boundary
+        # This ensures all vertex angles are on a continuous axis
+        remapped_angles = handle_angle_discontinuity(angles, alpha_min, alpha_max)
+        
         for i in range(n_vertices):
-            # Create vertex event
-            vertex_angle = float(angles[i])
+            # Use original angle for arc membership check, remapped for event
+            original_angle = float(angles[i])
+            event_angle = float(remapped_angles[i])
             
-            # Check if vertex is within the arc range
-            if _angle_in_arc(vertex_angle, alpha_min, alpha_max):
+            # Check if vertex is within the arc range (using original angles)
+            if _angle_in_arc(original_angle, alpha_min, alpha_max):
                 events.append(AngularEvent(
-                    angle=vertex_angle,
+                    angle=event_angle,
                     obstacle_id=obstacle_id,
                     event_type='vertex',
                     vertex_idx=i
@@ -102,7 +117,7 @@ def build_events(
             # Check if edge crosses alpha_min boundary
             if _edge_crosses_angle(angle_start, angle_end, alpha_min):
                 events.append(AngularEvent(
-                    angle=alpha_min,
+                    angle=remapped_alpha_min,
                     obstacle_id=obstacle_id,
                     event_type='edge_crossing',
                     vertex_idx=i
@@ -111,7 +126,7 @@ def build_events(
             # Check if edge crosses alpha_max boundary
             if _edge_crosses_angle(angle_start, angle_end, alpha_max):
                 events.append(AngularEvent(
-                    angle=alpha_max,
+                    angle=remapped_alpha_max,
                     obstacle_id=obstacle_id,
                     event_type='edge_crossing',
                     vertex_idx=i
@@ -228,7 +243,7 @@ def compute_coverage(
 
 
 def get_active_edges(
-    polygon: NDArray[np.float32],
+    polygon: NDArray[np.float32] | None,
     angle: float,
     max_range: float = 1e10
 ) -> NDArray[np.float32]:

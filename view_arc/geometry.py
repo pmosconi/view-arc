@@ -200,8 +200,9 @@ def handle_angle_discontinuity(
     
     # Arc crosses ±π boundary (e.g., arc from 170° to -170° = 340°)
     # We need to remap angles that are in the negative part to be > π
-    # Angles < alpha_max should have 2π added to make them continuous
-    mask = angles < alpha_max
+    # Angles <= alpha_max should have 2π added to make them continuous
+    # Using <= for inclusive boundary semantics
+    mask = angles <= alpha_max
     angles[mask] += 2 * np.pi
     
     return angles
