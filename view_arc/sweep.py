@@ -145,7 +145,15 @@ def _angle_in_arc(angle: float, alpha_min: float, alpha_max: float) -> bool:
     Check if an angle is within the arc range [alpha_min, alpha_max].
     
     Handles the case where the arc crosses the ±π boundary.
+    Also handles the special full-circle case where alpha_min = -π and alpha_max = π.
     """
+    # Check for full-circle case: alpha_min = -π and alpha_max = π
+    # This is a special sentinel used by the API for 360° FOV
+    is_full_circle = (abs(alpha_min - (-np.pi)) < 1e-9 and 
+                      abs(alpha_max - np.pi) < 1e-9)
+    if is_full_circle:
+        return True  # All angles are in the full circle
+    
     if alpha_min <= alpha_max:
         # Normal case: arc doesn't cross ±π
         return alpha_min <= angle <= alpha_max

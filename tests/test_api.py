@@ -727,6 +727,282 @@ class TestFindLargestObstacleViewDirections:
 
 
 # =============================================================================
+# Test: Wide FOV with angle normalization (regression test)
+# =============================================================================
+
+class TestFindLargestObstacleWideFOVNormalization:
+    """Regression tests for wide FOV scenarios requiring angle normalization.
+    
+    These tests verify that alpha_min/alpha_max are properly normalized to [-π, π)
+    so the sweep helpers can correctly detect wraparound via alpha_min > alpha_max.
+    """
+    
+    def test_270_degree_fov_obstacle_at_225_degrees(self):
+        """Obstacle at ~225° should be detected with 270° FOV looking up.
+        
+        Regression test: Without normalization, alpha_max ≈ 3.927 > π,
+        causing sweep code to think arc doesn't wrap and rejecting vertices
+        near 225° (-135° normalized).
+        """
+        viewer = np.array([0.0, 0.0], dtype=np.float32)
+        direction = np.array([0.0, 1.0], dtype=np.float32)  # Looking UP (90°)
+        
+        # Obstacle at ~225° (down-left from viewer) 
+        # With 270° FOV centered at 90°, arc spans from -45° to 225°
+        # which wraps around, so 225° should be visible
+        contours = [make_square((-40, -40), half_size=15)]
+        
+        result = find_largest_obstacle(
+            viewer_point=viewer,
+            view_direction=direction,
+            field_of_view_deg=270.0,
+            max_range=100.0,
+            obstacle_contours=contours
+        )
+        
+        assert result.obstacle_id == 0, (
+            "Obstacle at 225° should be visible with 270° FOV centered at 90°"
+        )
+        assert result.angular_coverage > 0
+    
+    def test_270_degree_fov_obstacle_at_minus_135_degrees(self):
+        """Obstacle at -135° (same as 225°) should be detected."""
+        viewer = np.array([0.0, 0.0], dtype=np.float32)
+        direction = np.array([0.0, 1.0], dtype=np.float32)  # Looking UP
+        
+        # Obstacle at -135° (down-left, same as 225°)
+        contours = [make_square((-50, -50), half_size=15)]
+        
+        result = find_largest_obstacle(
+            viewer_point=viewer,
+            view_direction=direction,
+            field_of_view_deg=270.0,
+            max_range=120.0,
+            obstacle_contours=contours
+        )
+        
+        assert result.obstacle_id == 0
+        assert result.angular_coverage > 0
+    
+    def test_300_degree_fov_multiple_obstacles(self):
+        """Multiple obstacles in 300° FOV including near ±π boundary."""
+        viewer = np.array([0.0, 0.0], dtype=np.float32)
+        direction = np.array([0.0, 1.0], dtype=np.float32)  # Looking UP
+        
+        # With 300° FOV centered at 90°, arc spans from -60° to 240°
+        # Obstacle at 180° (directly left) should be visible
+        contours = [
+            make_square((-60, 0), half_size=15),   # At 180° (left)
+            make_square((0, 60), half_size=12),     # At 90° (up, center of FOV)
+        ]
+        
+        result = find_largest_obstacle(
+            viewer_point=viewer,
+            view_direction=direction,
+            field_of_view_deg=300.0,
+            max_range=100.0,
+            obstacle_contours=contours
+        )
+        
+        assert result.obstacle_id is not None
+        assert result.angular_coverage > 0
+    
+    def test_330_degree_fov_obstacle_at_pi_boundary(self):
+        """Obstacle exactly at ±π (180°) with very wide FOV."""
+        viewer = np.array([0.0, 0.0], dtype=np.float32)
+        direction = np.array([0.0, 1.0], dtype=np.float32)  # Looking UP
+        
+        # Obstacle at exactly 180° (π radians, directly left)
+        contours = [make_square((-50, 0), half_size=15)]
+        
+        result = find_largest_obstacle(
+            viewer_point=viewer,
+            view_direction=direction,
+            field_of_view_deg=330.0,
+            max_range=100.0,
+            obstacle_contours=contours
+        )
+        
+        assert result.obstacle_id == 0, (
+            "Obstacle at 180° should be visible with 330° FOV centered at 90°"
+        )
+        assert result.angular_coverage > 0
+    
+    def test_wide_fov_looking_right_obstacle_behind_left(self):
+        """Wide FOV looking right should see obstacle behind-left."""
+        viewer = np.array([0.0, 0.0], dtype=np.float32)
+        direction = np.array([1.0, 0.0], dtype=np.float32)  # Looking RIGHT (0°)
+        
+        # With 270° FOV centered at 0°, arc spans from -135° to 135°
+        # Obstacle at 120° (up-left) should be visible
+        contours = [make_square((-30, 50), half_size=15)]
+        
+        result = find_largest_obstacle(
+            viewer_point=viewer,
+            view_direction=direction,
+            field_of_view_deg=270.0,
+            max_range=100.0,
+            obstacle_contours=contours
+        )
+        
+        assert result.obstacle_id == 0
+        assert result.angular_coverage > 0
+    
+    def test_wide_fov_looking_down_obstacle_up_left(self):
+        """Wide FOV looking down should see obstacle up-left."""
+        viewer = np.array([0.0, 0.0], dtype=np.float32)
+        direction = np.array([0.0, -1.0], dtype=np.float32)  # Looking DOWN (-90°)
+        
+        # With 270° FOV centered at -90°, arc spans from -225° to 45°
+        # Obstacle at 135° (up-left) should NOT be visible (outside FOV)
+        # But obstacle at -45° (down-right) should be visible
+        contours = [make_square((40, -40), half_size=15)]  # At -45°
+        
+        result = find_largest_obstacle(
+            viewer_point=viewer,
+            view_direction=direction,
+            field_of_view_deg=270.0,
+            max_range=100.0,
+            obstacle_contours=contours
+        )
+        
+        assert result.obstacle_id == 0
+        assert result.angular_coverage > 0
+
+
+# =============================================================================
+# Test: Full-circle FOV (360°) handling
+# =============================================================================
+
+class TestFindLargestObstacleFullCircle:
+    """
+    Regression tests for full-circle FOV (360°).
+    
+    Previously, 360° FOV would collapse to an empty wedge after normalization
+    (both alpha_min and alpha_max became -π), causing no obstacles to be detected.
+    """
+    
+    def test_360_fov_obstacle_in_front(self):
+        """Full-circle FOV should detect obstacle directly in front."""
+        viewer = np.array([0.0, 0.0], dtype=np.float32)
+        direction = np.array([0.0, 1.0], dtype=np.float32)  # Looking UP
+        
+        contours = [make_square((0, 50), half_size=10)]
+        
+        result = find_largest_obstacle(
+            viewer_point=viewer,
+            view_direction=direction,
+            field_of_view_deg=360.0,
+            max_range=100.0,
+            obstacle_contours=contours
+        )
+        
+        assert result.obstacle_id == 0
+        assert result.angular_coverage > 0
+        assert result.min_distance == pytest.approx(40.0, abs=0.1)
+    
+    def test_360_fov_obstacle_behind(self):
+        """Full-circle FOV should detect obstacle behind the viewer."""
+        viewer = np.array([0.0, 0.0], dtype=np.float32)
+        direction = np.array([0.0, 1.0], dtype=np.float32)  # Looking UP
+        
+        # Obstacle behind (at -90° or 270°)
+        contours = [make_square((0, -50), half_size=10)]
+        
+        result = find_largest_obstacle(
+            viewer_point=viewer,
+            view_direction=direction,
+            field_of_view_deg=360.0,
+            max_range=100.0,
+            obstacle_contours=contours
+        )
+        
+        assert result.obstacle_id == 0
+        assert result.angular_coverage > 0
+    
+    def test_360_fov_obstacle_to_left(self):
+        """Full-circle FOV should detect obstacle to the left."""
+        viewer = np.array([0.0, 0.0], dtype=np.float32)
+        direction = np.array([0.0, 1.0], dtype=np.float32)  # Looking UP
+        
+        # Obstacle at 180° (left)
+        contours = [make_square((-50, 0), half_size=10)]
+        
+        result = find_largest_obstacle(
+            viewer_point=viewer,
+            view_direction=direction,
+            field_of_view_deg=360.0,
+            max_range=100.0,
+            obstacle_contours=contours
+        )
+        
+        assert result.obstacle_id == 0
+        assert result.angular_coverage > 0
+    
+    def test_360_fov_obstacle_to_right(self):
+        """Full-circle FOV should detect obstacle to the right."""
+        viewer = np.array([0.0, 0.0], dtype=np.float32)
+        direction = np.array([0.0, 1.0], dtype=np.float32)  # Looking UP
+        
+        # Obstacle at 0° (right)
+        contours = [make_square((50, 0), half_size=10)]
+        
+        result = find_largest_obstacle(
+            viewer_point=viewer,
+            view_direction=direction,
+            field_of_view_deg=360.0,
+            max_range=100.0,
+            obstacle_contours=contours
+        )
+        
+        assert result.obstacle_id == 0
+        assert result.angular_coverage > 0
+    
+    def test_360_fov_multiple_obstacles_all_around(self):
+        """Full-circle FOV should detect obstacles in all directions."""
+        viewer = np.array([0.0, 0.0], dtype=np.float32)
+        direction = np.array([0.0, 1.0], dtype=np.float32)  # Looking UP
+        
+        # Obstacles in all 4 cardinal directions
+        contours = [
+            make_square((0, 50), half_size=5),    # Front - closest
+            make_square((50, 0), half_size=10),   # Right
+            make_square((0, -60), half_size=10),  # Back
+            make_square((-60, 0), half_size=10),  # Left
+        ]
+        
+        result = find_largest_obstacle(
+            viewer_point=viewer,
+            view_direction=direction,
+            field_of_view_deg=360.0,
+            max_range=100.0,
+            obstacle_contours=contours
+        )
+        
+        # One of the obstacles should be detected
+        assert result.obstacle_id is not None
+        assert result.angular_coverage > 0
+    
+    def test_360_fov_near_epsilon(self):
+        """FOV very close to 360° (e.g., 359.999999°) should also work."""
+        viewer = np.array([0.0, 0.0], dtype=np.float32)
+        direction = np.array([0.0, 1.0], dtype=np.float32)
+        
+        contours = [make_square((0, 50), half_size=10)]
+        
+        result = find_largest_obstacle(
+            viewer_point=viewer,
+            view_direction=direction,
+            field_of_view_deg=360.0 - 1e-7,  # Just under 360
+            max_range=100.0,
+            obstacle_contours=contours
+        )
+        
+        assert result.obstacle_id == 0
+        assert result.angular_coverage > 0
+
+
+# =============================================================================
 # Test: ObstacleResult dataclass behavior
 # =============================================================================
 

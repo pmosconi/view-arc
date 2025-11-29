@@ -20,15 +20,15 @@ def clip_polygon_to_wedge(
     """
     Clip polygon against circular sector wedge.
     
-    Applies three clipping stages:
-    1. Half-plane at alpha_min (keep left/CCW side)
-    2. Half-plane at alpha_max (keep right/CW side)
-    3. Circle at radius max_range
+    Applies clipping in stages:
+    - For narrow arcs (≤180°): intersect two half-planes
+    - For wide arcs (>180°): skip half-plane clipping (sweep handles angular filtering)
+    - Finally clip by circle at max_range
     
     Parameters:
         polygon: Polygon vertices (N, 2) in viewer-centric frame
-        alpha_min: Minimum angle of wedge in radians
-        alpha_max: Maximum angle of wedge in radians
+        alpha_min: Minimum angle of wedge in radians (normalized to [-π, π))
+        alpha_max: Maximum angle of wedge in radians (normalized to [-π, π))
         max_range: Radius of circular boundary
         
     Returns:
@@ -38,17 +38,56 @@ def clip_polygon_to_wedge(
     if not is_valid_polygon(polygon):
         return None
     
-    # Stage 1: Clip by half-plane at alpha_min (keep left = CCW from alpha_min ray)
-    result = clip_polygon_halfplane(polygon, plane_angle=alpha_min, keep_left=True)
-    if result.shape[0] < 3:
-        return None
+    # Check for full-circle case: alpha_min = -π and alpha_max = π
+    # This is a special sentinel used by the API for 360° FOV
+    is_full_circle = (abs(alpha_min - (-np.pi)) < 1e-9 and 
+                      abs(alpha_max - np.pi) < 1e-9)
     
-    # Stage 2: Clip by half-plane at alpha_max (keep right = CW from alpha_max ray)
-    result = clip_polygon_halfplane(result, plane_angle=alpha_max, keep_left=False)
-    if result.shape[0] < 3:
-        return None
+    if is_full_circle:
+        # Full circle: skip all angular clipping, only clip by range
+        result = polygon.copy()
+        result = clip_polygon_circle(result, radius=max_range)
+        if result.shape[0] < 3:
+            return None
+        return result
     
-    # Stage 3: Clip by circle at max_range
+    # Calculate arc span to determine clipping strategy
+    # Arc wraps around ±π if alpha_min > alpha_max
+    arc_wraps = alpha_min > alpha_max
+    if arc_wraps:
+        # Wrapped arc: span goes from alpha_min to +π, then -π to alpha_max
+        arc_span = (2 * np.pi) - alpha_min + alpha_max
+    else:
+        # Non-wrapped arc: span is simply the difference
+        arc_span = alpha_max - alpha_min
+    
+    # Half-plane intersection only works for arcs ≤ 180°
+    # For wider arcs, skip half-plane clipping and let the sweep filter by angle
+    is_narrow_arc = arc_span <= np.pi + 1e-6  # Small epsilon for floating point
+    
+    if is_narrow_arc:
+        # Narrow arc case: use intersection of two half-planes
+        # Stage 1: Clip by half-plane at alpha_min (keep left = CCW from alpha_min ray)
+        result = clip_polygon_halfplane(polygon, plane_angle=alpha_min, keep_left=True)
+        if result.shape[0] < 3:
+            return None
+        
+        # Stage 2: Clip by half-plane at alpha_max (keep right = CW from alpha_max ray)
+        result = clip_polygon_halfplane(result, plane_angle=alpha_max, keep_left=False)
+        if result.shape[0] < 3:
+            return None
+    else:
+        # Wide arc case (>180°): skip half-plane clipping
+        # The sweep algorithm's _angle_in_arc correctly handles wide/wrapped arcs,
+        # so we only need to clip by the circle boundary.
+        # 
+        # This is valid because:
+        # 1. The polygon will be clipped to the max range circle
+        # 2. The sweep will only count coverage for angles within the arc
+        # 3. Vertices outside the arc won't contribute to coverage
+        result = polygon.copy()
+    
+    # Final stage: Clip by circle at max_range
     result = clip_polygon_circle(result, radius=max_range)
     if result.shape[0] < 3:
         return None

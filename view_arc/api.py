@@ -8,6 +8,7 @@ import numpy as np
 from numpy.typing import NDArray
 
 from view_arc.geometry import (
+    normalize_angle,
     validate_and_get_direction_angle,
     to_viewer_frame,
     to_polar,
@@ -118,12 +119,25 @@ def find_largest_obstacle(
     # -------------------------------------------------------------------------
     # Step 2: Compute arc boundaries
     # -------------------------------------------------------------------------
-    half_fov_rad = np.deg2rad(field_of_view_deg) / 2.0
-    alpha_min = alpha_center - half_fov_rad
-    alpha_max = alpha_center + half_fov_rad
+    # Special case: full-circle FOV (360° or very close to it)
+    # Use epsilon of 1e-6 degrees to catch floating point issues
+    FULL_CIRCLE_EPSILON = 1e-6
+    is_full_circle = field_of_view_deg >= 360.0 - FULL_CIRCLE_EPSILON
     
-    # Normalize boundaries to [-π, π) if needed
-    # Note: We keep them as-is to handle wraparound correctly in sweep
+    if is_full_circle:
+        # For full circle, use sentinel values that span the entire angle range
+        # alpha_min = -π, alpha_max = π signals "full circle" to clipping and sweep
+        alpha_min = -np.pi
+        alpha_max = np.pi
+    else:
+        half_fov_rad = np.deg2rad(field_of_view_deg) / 2.0
+        alpha_min = alpha_center - half_fov_rad
+        alpha_max = alpha_center + half_fov_rad
+        
+        # Normalize boundaries to [-π, π) so sweep helpers can correctly detect
+        # wraparound via alpha_min > alpha_max
+        alpha_min = normalize_angle(alpha_min)
+        alpha_max = normalize_angle(alpha_max)
     
     # -------------------------------------------------------------------------
     # Step 3: Transform contours to viewer-centric frame and clip
