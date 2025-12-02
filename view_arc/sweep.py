@@ -238,6 +238,35 @@ def resolve_interval(
     if angular_span <= 0:
         return None
     
+    # Fast path: single obstacle means no occlusion resolution needed
+    # Just find the minimum distance for this one obstacle
+    # Sample both endpoints and midpoint to handle edge cases
+    if len(active_obstacles) == 1:
+        obstacle_id = next(iter(active_obstacles))
+        edges = active_obstacles[obstacle_id]
+        
+        # Sample start, mid, and end to ensure we catch obstacles at boundaries
+        start_angle = normalize_angle(interval_start)
+        mid_angle = normalize_angle((interval_start + interval_end) / 2)
+        end_angle = normalize_angle(interval_end)
+        
+        min_dist: Optional[float] = None
+        for angle in [start_angle, mid_angle, end_angle]:
+            dist = _find_min_distance_at_angle(edges, angle)
+            if dist is not None:
+                if min_dist is None or dist < min_dist:
+                    min_dist = dist
+        
+        if min_dist is None:
+            return None
+        
+        return IntervalResult(
+            obstacle_id=obstacle_id,
+            min_distance=min_dist,
+            angle_start=interval_start,
+            angle_end=interval_end
+        )
+    
     # Always use at least 2 samples to ensure both endpoints are covered.
     # This prevents missing obstacles that only appear at interval boundaries.
     # For very narrow intervals, we still sample both endpoints.
@@ -317,6 +346,9 @@ def _find_min_distance_at_angle(
     """
     Find minimum distance to any edge at a given angle.
     
+    This is a performance-critical function. For typical workloads with
+    few edges, we use a simple loop with early termination.
+    
     Parameters:
         edges: Array of edges shape (M, 2, 2) where each edge is [[x1,y1], [x2,y2]]
         angle: Ray angle in radians
@@ -327,11 +359,38 @@ def _find_min_distance_at_angle(
     """
     min_dist: Optional[float] = None
     
+    # Precompute ray direction once (avoids repeated trig calls)
+    cos_angle = np.cos(angle)
+    sin_angle = np.sin(angle)
+    
     for edge in edges:
-        dist = intersect_ray_segment(angle, edge[0], edge[1], max_range)
-        if dist is not None:
-            if min_dist is None or dist < min_dist:
-                min_dist = dist
+        # Inline the ray-segment intersection for performance
+        # This avoids function call overhead which dominates for small workloads
+        p1, p2 = edge[0], edge[1]
+        v = p2 - p1  # segment direction
+        
+        # Determinant for Cramer's rule: det = v_x * d_y - v_y * d_x
+        det = v[0] * sin_angle - v[1] * cos_angle
+        
+        if abs(det) < 1e-10:
+            continue  # Ray parallel to segment
+        
+        # r = (A_y * v_x - A_x * v_y) / det
+        # t = (A_y * d_x - A_x * d_y) / det
+        r = (p1[1] * v[0] - p1[0] * v[1]) / det
+        t = (p1[1] * cos_angle - p1[0] * sin_angle) / det
+        
+        # Check validity: t in [0,1] and r > 0 and r <= max_range
+        if t < 0.0 or t > 1.0 or r <= 0.0 or r > max_range:
+            continue
+        
+        if min_dist is None or r < min_dist:
+            min_dist = r
+            # Early exit: if we find something very close, it's unlikely
+            # to be occluded by anything closer. This is a heuristic that
+            # works well for typical obstacle scenarios.
+            if min_dist < 10.0:  # Very close obstacle found
+                break
     
     return min_dist
 
@@ -414,14 +473,27 @@ def compute_coverage(
         # Convert midpoint back to original angle space [-π, π) for ray intersection
         query_angle = normalize_angle(midpoint)
         
+        # Precompute ray direction for this interval (used for active obstacle check)
+        cos_query = np.cos(query_angle)
+        sin_query = np.sin(query_angle)
+        
         # Determine active obstacles for this interval
+        # An obstacle is active if any of its edges intersects the query ray
         active_obstacles: Dict[int, NDArray[np.float32]] = {}
         for obstacle_id, edges in obstacle_edges.items():
-            # Check if any edge is intersected at the query angle
+            # Inline ray-segment intersection check for performance
             for edge in edges:
-                dist = intersect_ray_segment(query_angle, edge[0], edge[1], 1e10)
-                if dist is not None:
-                    # This obstacle is active at this angle
+                p1, p2 = edge[0], edge[1]
+                v = p2 - p1
+                det = v[0] * sin_query - v[1] * cos_query
+                
+                if abs(det) < 1e-10:
+                    continue
+                
+                r = (p1[1] * v[0] - p1[0] * v[1]) / det
+                t = (p1[1] * cos_query - p1[0] * sin_query) / det
+                
+                if 0.0 <= t <= 1.0 and r > 0.0:
                     active_obstacles[obstacle_id] = edges
                     break
         

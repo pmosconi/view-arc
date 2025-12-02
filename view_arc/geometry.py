@@ -21,7 +21,7 @@ def normalize_angle(angle: float) -> float:
     result = np.fmod(angle + np.pi, 2 * np.pi)
     if result < 0:
         result += 2 * np.pi
-    return result - np.pi
+    return float(result - np.pi)
 
 
 def to_viewer_frame(

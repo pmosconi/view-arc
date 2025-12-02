@@ -38,6 +38,23 @@ def clip_polygon_to_wedge(
     if not is_valid_polygon(polygon):
         return None
     
+    # Early exit: check if polygon's bounding box is entirely outside max_range
+    # This is a cheap O(n) check that can skip expensive clipping operations
+    min_pt, max_pt = compute_bounding_box(polygon)
+    
+    # If the closest corner of the bounding box is beyond max_range,
+    # the polygon cannot intersect the circle
+    # Closest point to origin in AABB: clamp origin to box bounds
+    closest_x = max(min_pt[0], min(-max_range, max_pt[0]))
+    closest_x = min(closest_x, max_pt[0])
+    closest_x = max(closest_x, min_pt[0])
+    closest_x = np.clip(0.0, min_pt[0], max_pt[0])
+    closest_y = np.clip(0.0, min_pt[1], max_pt[1])
+    
+    # If closest point in AABB to origin is beyond max_range, skip this polygon
+    if closest_x * closest_x + closest_y * closest_y > max_range * max_range:
+        return None
+    
     # Check for full-circle case: alpha_min = -π and alpha_max = π
     # This is a special sentinel used by the API for 360° FOV
     is_full_circle = (abs(alpha_min - (-np.pi)) < 1e-9 and 
@@ -334,7 +351,7 @@ def is_valid_polygon(polygon: NDArray[np.float32]) -> bool:
     Returns:
         True if polygon has at least 3 vertices
     """
-    return polygon.shape[0] >= 3
+    return bool(polygon.shape[0] >= 3)
 
 
 def compute_bounding_box(
