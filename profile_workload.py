@@ -9,7 +9,7 @@ import io
 import numpy as np
 from numpy.typing import NDArray
 import time
-from typing import List
+from typing import Callable, List
 from view_arc.api import find_largest_obstacle
 
 
@@ -86,7 +86,7 @@ def run_many_obstacles_workload(n_iterations: int = 20) -> None:
         )
 
 
-def profile_function(func, description: str) -> None:
+def profile_function(func: Callable[[], None], description: str) -> None:
     """Profile a function and print statistics."""
     print(f"\n{'=' * 60}")
     print(f"Profiling: {description}")
