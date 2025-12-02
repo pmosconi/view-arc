@@ -1,8 +1,9 @@
 """Real image processing example for the view_arc pipeline.
 
 This script shows how the obstacle detector can be paired with simple
-image processing logic to extract contours from a real photograph.
-It then visualises the winning obstacle and angular coverage overlay.
+image processing logic to extract contours from a real photograph. The
+demo loads ``images/background.jpeg`` that ships with the repository,
+then visualises the winning obstacle and angular coverage overlay.
 
 Run with::
 
@@ -12,17 +13,20 @@ Run with::
 from __future__ import annotations
 
 from pathlib import Path
-from typing import List
+from typing import List, cast
 
 import numpy as np
 from numpy.typing import NDArray
-from skimage import color, data, filters, measure, morphology
+from skimage import color, filters, measure, morphology, io, util
 
 from view_arc import find_largest_obstacle
 from view_arc.api import ObstacleResult
 from view_arc.visualize import draw_complete_visualization, HAS_CV2
 
-OUTPUT_DIR = Path(__file__).resolve().parent / "output"
+EXAMPLES_DIR = Path(__file__).resolve().parent
+PROJECT_ROOT = EXAMPLES_DIR.parent
+IMAGE_PATH = PROJECT_ROOT / "images" / "background.jpeg"
+OUTPUT_DIR = EXAMPLES_DIR / "output"
 OUTPUT_PATH = OUTPUT_DIR / "real_image_demo.png"
 
 
@@ -84,16 +88,33 @@ def summarise_result(result: ObstacleResult) -> None:
             )
 
 
+def load_scene_image() -> NDArray[np.uint8]:
+    """Load the demo background from ``images/background.jpeg`` as uint8 RGB."""
+
+    if not IMAGE_PATH.exists():
+        raise SystemExit(
+            f"Sample image not found at {IMAGE_PATH}. Add the file or adjust IMAGE_PATH."
+        )
+
+    raw_image = io.imread(IMAGE_PATH)
+    image = np.asarray(raw_image)
+    if image.ndim == 2:
+        image = color.gray2rgb(image)
+    if image.dtype != np.uint8:
+        image = util.img_as_ubyte(image)
+    return cast(NDArray[np.uint8], image.astype(np.uint8, copy=False))
+
+
 def main() -> None:
     """Run obstacle detection on a real image and optionally visualise the result."""
 
-    image = data.astronaut()
+    image = load_scene_image()
     height, width, _ = image.shape
 
-    viewer_point = np.array([width / 2.0, height - 40.0], dtype=np.float32)
-    view_direction = np.array([0.0, -1.0], dtype=np.float32)  # looking toward the top of the image
-    field_of_view_deg = 75.0
-    max_range = height * 0.8
+    viewer_point = np.array([width / 2.0, 40.0], dtype=np.float32)
+    view_direction = np.array([0.378, 0.925], dtype=np.float32)  # looking toward the bottom-right of the image
+    field_of_view_deg = 45.0
+    max_range = height * 0.4
 
     obstacles = extract_obstacle_contours(image, max_obstacles=6)
     if not obstacles:
