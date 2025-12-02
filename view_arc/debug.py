@@ -455,11 +455,15 @@ def setup_debug_logging(level: int = logging.DEBUG) -> None:
     Set up debug logging for the view_arc module.
     
     This configures the view_arc.debug logger with console output
-    at the specified level.
+    at the specified level. Safe to call multiple times - existing
+    handlers are cleared first to prevent duplicate log output.
     
     Parameters:
         level: Logging level (default: DEBUG)
     """
+    # Clear any existing handlers to prevent duplicates on repeated calls
+    logger.handlers.clear()
+    
     handler = logging.StreamHandler()
     handler.setLevel(level)
     formatter = logging.Formatter(

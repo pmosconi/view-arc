@@ -691,3 +691,133 @@ class TestLoggingSetup:
         # Re-enable for other tests
         setup_debug_logging(logging.WARNING)
         disable_debug_logging()
+
+    def test_setup_logging_multiple_times_no_duplicate_handlers(self) -> None:
+        """Test that calling setup_debug_logging multiple times doesn't stack handlers."""
+        from view_arc.debug import logger
+        
+        # Call setup multiple times
+        setup_debug_logging(logging.DEBUG)
+        setup_debug_logging(logging.DEBUG)
+        setup_debug_logging(logging.DEBUG)
+        
+        # Should only have one handler, not three
+        assert len(logger.handlers) == 1
+        
+        disable_debug_logging()
+        assert len(logger.handlers) == 0
+
+
+class TestSkippedObstacleIds:
+    """Tests to ensure obstacle IDs are preserved correctly when some obstacles are skipped."""
+
+    def test_skipped_obstacle_preserves_original_ids(self) -> None:
+        """
+        Test that when an earlier obstacle is clipped away, later obstacles
+        retain their original indices in the result.
+        
+        This is a regression test for the bug where build_events re-enumerated
+        filtered polygons, causing wrong obstacle IDs in events and results.
+        """
+        viewer = np.array([100.0, 100.0], dtype=np.float32)
+        direction = np.array([0.0, 1.0], dtype=np.float32)
+        
+        # Obstacle 0: completely behind the viewer (will be clipped away)
+        obstacle_behind = make_square((100, 50), 15)  # Behind viewer looking up
+        
+        # Obstacle 1: completely outside FOV to the right (will be clipped away)
+        obstacle_right = make_square((200, 100), 15)  # Far to the right
+        
+        # Obstacle 2: visible in front (should be the winner with ID=2, not ID=0)
+        obstacle_visible = make_triangle((100, 150), 20)
+        
+        contours = [obstacle_behind, obstacle_right, obstacle_visible]
+        
+        result = find_largest_obstacle(
+            viewer, direction, 60.0, 100.0, contours,
+            return_intervals=True,
+            return_all_coverage=True,
+        )
+        
+        # The winner should be obstacle 2 (original index), not 0
+        assert result.obstacle_id == 2, (
+            f"Expected winner ID=2 (third obstacle), got {result.obstacle_id}. "
+            "This suggests obstacle IDs are being re-enumerated after filtering."
+        )
+        
+        # Coverage dict should use original ID
+        if result.all_coverage:
+            assert 2 in result.all_coverage, (
+                f"Expected obstacle ID 2 in coverage dict, got keys: {list(result.all_coverage.keys())}"
+            )
+            # Obstacles 0 and 1 should NOT be in coverage (they were clipped)
+            assert 0 not in result.all_coverage
+            assert 1 not in result.all_coverage
+
+    def test_skipped_obstacle_multiple_visible(self) -> None:
+        """
+        Test with multiple visible obstacles where one earlier obstacle is skipped.
+        Ensures all visible obstacles retain correct IDs.
+        """
+        viewer = np.array([100.0, 100.0], dtype=np.float32)
+        direction = np.array([0.0, 1.0], dtype=np.float32)
+        
+        # Obstacle 0: behind viewer (clipped away)
+        obstacle_behind = make_square((100, 30), 15)
+        
+        # Obstacle 1: visible, closer
+        obstacle_1 = make_triangle((90, 140), 15)
+        
+        # Obstacle 2: visible, farther
+        obstacle_2 = make_triangle((110, 180), 15)
+        
+        contours = [obstacle_behind, obstacle_1, obstacle_2]
+        
+        result = find_largest_obstacle(
+            viewer, direction, 90.0, 150.0, contours,
+            return_intervals=True,
+            return_all_coverage=True,
+        )
+        
+        # Winner should be 1 or 2, definitely not 0
+        assert result.obstacle_id in (1, 2), (
+            f"Expected winner ID in (1, 2), got {result.obstacle_id}"
+        )
+        
+        # Coverage should have correct IDs
+        if result.all_coverage:
+            # Should NOT have obstacle 0
+            assert 0 not in result.all_coverage
+            # Should have at least one of the visible obstacles with correct ID
+            visible_ids = set(result.all_coverage.keys())
+            assert visible_ids.issubset({1, 2}), (
+                f"Expected coverage keys to be subset of {{1, 2}}, got {visible_ids}"
+            )
+
+    def test_interval_details_use_original_obstacle_ids(self) -> None:
+        """Test that interval_details contain correct original obstacle IDs."""
+        viewer = np.array([100.0, 100.0], dtype=np.float32)
+        direction = np.array([0.0, 1.0], dtype=np.float32)
+        
+        # Obstacle 0: invalid (too few vertices) - will be skipped
+        invalid_obstacle = np.array([[100, 150], [110, 150]], dtype=np.float32)
+        
+        # Obstacle 1: valid visible obstacle
+        valid_obstacle = make_triangle((100, 150), 20)
+        
+        contours = [invalid_obstacle, valid_obstacle]
+        
+        result = find_largest_obstacle(
+            viewer, direction, 60.0, 100.0, contours,
+            return_intervals=True,
+        )
+        
+        assert result.obstacle_id == 1, (
+            f"Expected winner ID=1, got {result.obstacle_id}"
+        )
+        
+        if result.interval_details:
+            for detail in result.interval_details:
+                assert detail.obstacle_id == 1, (
+                    f"Expected interval obstacle_id=1, got {detail.obstacle_id}"
+                )

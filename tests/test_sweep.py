@@ -214,7 +214,7 @@ class TestBuildEvents:
         alpha_min = -np.pi / 4
         alpha_max = np.pi / 2
         
-        events = build_events([triangle], alpha_min, alpha_max)
+        events = build_events([(0, triangle)], alpha_min, alpha_max)
         
         # Should have 3 vertex events (one per vertex)
         vertex_events = [e for e in events if e.event_type == 'vertex']
@@ -241,7 +241,7 @@ class TestBuildEvents:
         alpha_min = -np.pi / 4
         alpha_max = 3 * np.pi / 4
         
-        events = build_events([triangle1, triangle2], alpha_min, alpha_max)
+        events = build_events([(0, triangle1), (1, triangle2)], alpha_min, alpha_max)
         
         # Should have vertex events from both obstacles
         vertex_events = [e for e in events if e.event_type == 'vertex']
@@ -271,7 +271,7 @@ class TestBuildEvents:
         alpha_min = 0.0
         alpha_max = np.pi / 2
         
-        events = build_events([triangle], alpha_min, alpha_max)
+        events = build_events([(0, triangle)], alpha_min, alpha_max)
         
         # Should have some vertex events for vertices inside the arc
         # May also have edge crossing events at boundaries
@@ -290,7 +290,7 @@ class TestBuildEvents:
         alpha_min = 0.0
         alpha_max = np.pi / 2
         
-        events = build_events([triangle1], alpha_min, alpha_max)
+        events = build_events([(0, triangle1)], alpha_min, alpha_max)
         
         # Find events at or near angle 0
         events_at_zero = [e for e in events if abs(e.angle) < 0.01]
@@ -314,8 +314,9 @@ class TestBuildEvents:
             [1.0, 0.5],
         ], dtype=np.float32)
         
-        # List with None elements
-        polygons = [None, triangle, None]
+        # List with None elements - using tuple format with original IDs
+        # Note: (0, None) and (2, None) are skipped, only (1, triangle) produces events
+        polygons = [(0, None), (1, triangle), (2, None)]
         
         alpha_min = -np.pi / 4
         alpha_max = np.pi / 2
@@ -338,7 +339,7 @@ class TestBuildEvents:
         alpha_min = np.pi / 2
         alpha_max = np.pi
         
-        events = build_events([triangle], alpha_min, alpha_max)
+        events = build_events([(0, triangle)], alpha_min, alpha_max)
         
         # No vertex events should be generated (triangle is outside arc)
         vertex_events = [e for e in events if e.event_type == 'vertex']
@@ -357,7 +358,7 @@ class TestBuildEvents:
         alpha_min = 170 * np.pi / 180   # ≈ 2.97 rad
         alpha_max = -170 * np.pi / 180  # ≈ -2.97 rad
         
-        events = build_events([triangle], alpha_min, alpha_max)
+        events = build_events([(0, triangle)], alpha_min, alpha_max)
         
         # Triangle vertices should be within this arc
         vertex_events = [e for e in events if e.event_type == 'vertex']
@@ -390,7 +391,7 @@ class TestBuildEvents:
         alpha_min = 170 * np.pi / 180   # ≈ 2.97 rad
         alpha_max = -170 * np.pi / 180  # ≈ -2.97 rad
         
-        events = build_events([polygon], alpha_min, alpha_max)
+        events = build_events([(0, polygon)], alpha_min, alpha_max)
         
         # Should have edge-crossing events at boundaries
         edge_events = [e for e in events if e.event_type == 'edge_crossing']
@@ -920,7 +921,7 @@ class TestComputeCoverage:
         alpha_max = 0.3
         
         # Build events for the polygon
-        events = build_events([polygon], alpha_min, alpha_max)
+        events = build_events([(0, polygon)], alpha_min, alpha_max)
         
         coverage, min_dist, intervals = compute_coverage(
             events, obstacle_edges, alpha_min, alpha_max
@@ -961,7 +962,7 @@ class TestComputeCoverage:
         alpha_min = -0.8
         alpha_max = 0.8
         
-        events = build_events([polygon0, polygon1], alpha_min, alpha_max)
+        events = build_events([(0, polygon0), (1, polygon1)], alpha_min, alpha_max)
         
         coverage, min_dist, intervals = compute_coverage(
             events, obstacle_edges, alpha_min, alpha_max
@@ -1006,7 +1007,7 @@ class TestComputeCoverage:
         alpha_min = -0.2
         alpha_max = 0.2
         
-        events = build_events([polygon0, polygon1], alpha_min, alpha_max)
+        events = build_events([(0, polygon0), (1, polygon1)], alpha_min, alpha_max)
         
         coverage, min_dist, intervals = compute_coverage(
             events, obstacle_edges, alpha_min, alpha_max
@@ -1039,7 +1040,7 @@ class TestComputeCoverage:
         alpha_min = -0.5
         alpha_max = 0.8
         
-        events = build_events([polygon], alpha_min, alpha_max)
+        events = build_events([(0, polygon)], alpha_min, alpha_max)
         
         coverage, min_dist, intervals = compute_coverage(
             events, obstacle_edges, alpha_min, alpha_max
@@ -1066,7 +1067,7 @@ class TestComputeCoverage:
         alpha_min = -0.3
         alpha_max = 0.3
         
-        events = build_events([polygon], alpha_min, alpha_max)
+        events = build_events([(0, polygon)], alpha_min, alpha_max)
         
         coverage, min_dist, intervals = compute_coverage(
             events, obstacle_edges, alpha_min, alpha_max
@@ -1101,7 +1102,7 @@ class TestComputeCoverage:
         alpha_min = -0.3
         alpha_max = 0.3
         
-        events = build_events([polygon0, polygon1], alpha_min, alpha_max)
+        events = build_events([(0, polygon0), (1, polygon1)], alpha_min, alpha_max)
         
         coverage, min_dist, intervals = compute_coverage(
             events, obstacle_edges, alpha_min, alpha_max
@@ -1131,7 +1132,7 @@ class TestComputeCoverage:
         alpha_min = -0.3
         alpha_max = 0.3
         
-        events = build_events([polygon], alpha_min, alpha_max)
+        events = build_events([(0, polygon)], alpha_min, alpha_max)
         
         coverage, min_dist, intervals = compute_coverage(
             events, obstacle_edges, alpha_min, alpha_max
@@ -1156,7 +1157,7 @@ class TestComputeCoverage:
         alpha_min = -0.3
         alpha_max = 0.3
         
-        events = build_events([polygon], alpha_min, alpha_max)
+        events = build_events([(0, polygon)], alpha_min, alpha_max)
         
         coverage, min_dist, intervals = compute_coverage(
             events, obstacle_edges, alpha_min, alpha_max
@@ -1201,7 +1202,7 @@ class TestComputeCoverage:
         edges = self._make_edges_from_polygon(polygon)
         obstacle_edges = {0: edges}
         
-        events = build_events([polygon], alpha_min, alpha_max)
+        events = build_events([(0, polygon)], alpha_min, alpha_max)
         
         coverage, min_dist, intervals = compute_coverage(
             events, obstacle_edges, alpha_min, alpha_max

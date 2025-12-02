@@ -286,7 +286,7 @@ class TestSweepVisual:
                           edgecolor='blue', label='Triangle')
         
         # Build events
-        events = build_events([triangle], alpha_min, alpha_max)
+        events = build_events([(0, triangle)], alpha_min, alpha_max)
         
         # Draw rays to vertices (for vertex events)
         vertex_events = [e for e in events if e.event_type == 'vertex']
@@ -375,7 +375,7 @@ class TestSweepVisual:
         ax.legend(loc='upper left', fontsize=8)
         
         # Build events
-        events = build_events([triangle, square], alpha_min, alpha_max)
+        events = build_events([(0, triangle), (1, square)], alpha_min, alpha_max)
         
         # Right plot: Events by obstacle
         ax = axes[1]
@@ -502,7 +502,7 @@ class TestSweepVisual:
         ax.legend(loc='upper right', fontsize=8)
         
         # Build events
-        events = build_events([triangle], alpha_min, alpha_max)
+        events = build_events([(0, triangle)], alpha_min, alpha_max)
         
         # Right plot: Angular distribution
         ax = axes[1]
@@ -1104,7 +1104,7 @@ class TestSweepVisual:
         alpha_max = 0.4
         
         # Build events
-        events = build_events([polygon], alpha_min, alpha_max)
+        events = build_events([(0, polygon)], alpha_min, alpha_max)
         
         # Compute coverage
         coverage, min_dist, intervals = compute_coverage(
@@ -1217,7 +1217,7 @@ Coverage Results:
         alpha_max = 0.8
         
         # Build events
-        events = build_events([polygon0, polygon1], alpha_min, alpha_max)
+        events = build_events([(0, polygon0), (1, polygon1)], alpha_min, alpha_max)
         
         # Compute coverage
         coverage, min_dist, intervals = compute_coverage(
@@ -1327,7 +1327,7 @@ Coverage Results:
         alpha_max = 0.35
         
         # Build events
-        events = build_events([polygon_far, polygon_close], alpha_min, alpha_max)
+        events = build_events([(0, polygon_far), (1, polygon_close)], alpha_min, alpha_max)
         
         # Compute coverage
         coverage, min_dist, intervals = compute_coverage(
@@ -1460,7 +1460,7 @@ overlapping angular region due to occlusion.
         alpha_max = 0.9
         
         # Build events
-        events = build_events([polygon], alpha_min, alpha_max)
+        events = build_events([(0, polygon)], alpha_min, alpha_max)
         
         # Compute coverage
         coverage, min_dist, intervals = compute_coverage(
@@ -1586,7 +1586,7 @@ overlapping angular region due to occlusion.
         alpha_max = -160 * np.pi / 180  # ≈ -2.79 rad
         
         # Build events
-        events = build_events([polygon], alpha_min, alpha_max)
+        events = build_events([(0, polygon)], alpha_min, alpha_max)
         
         # Compute coverage
         coverage, min_dist, intervals = compute_coverage(
@@ -1714,7 +1714,7 @@ Intervals: {len(intervals)}
         alpha_max = 1.0
         
         # Build events
-        events = build_events([polygon0, polygon1, polygon2], alpha_min, alpha_max)
+        events = build_events([(0, polygon0), (1, polygon1), (2, polygon2)], alpha_min, alpha_max)
         
         # Compute coverage
         coverage, min_dist, intervals = compute_coverage(

@@ -289,12 +289,12 @@ def find_largest_obstacle(
         )
     
     # Build events from clipped polygons
-    # Need to pass with original obstacle IDs preserved
-    # Create a list of tuples (obstacle_id, clipped_polygon) for valid polygons only
-    valid_polygons_with_ids = [
+    # Pass (obstacle_id, polygon) tuples to preserve original obstacle IDs
+    # This ensures event.obstacle_id matches the original contour indices
+    valid_polygons_with_ids: List[Tuple[int, NDArray[np.float32]]] = [
         (i, polygon) for i, polygon in enumerate(clipped_polygons) if polygon is not None
     ]
-    events = build_events([p for _, p in valid_polygons_with_ids], alpha_min, alpha_max)
+    events = build_events(valid_polygons_with_ids, alpha_min, alpha_max)
     
     # Compute coverage via angular sweep
     coverage_dict, min_distance_dict, intervals = compute_coverage(

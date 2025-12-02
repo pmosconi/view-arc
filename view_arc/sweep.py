@@ -31,7 +31,7 @@ class AngularEvent:
     event_type: str = field(compare=False)
     vertex_idx: int = field(default=-1, compare=False)
     
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         # Vertex events should be processed before edge_crossing events at same angle
         self._sort_priority = 0 if self.event_type == 'vertex' else 1
 
@@ -56,7 +56,7 @@ class IntervalResult:
 
 
 def build_events(
-    clipped_polygons: List[NDArray[np.float32]],
+    clipped_polygons: List[Tuple[int, NDArray[np.float32]]],
     alpha_min: float,
     alpha_max: float
 ) -> List[AngularEvent]:
@@ -68,12 +68,16 @@ def build_events(
     to a continuous range for proper sorting.
     
     Parameters:
-        clipped_polygons: List of clipped polygons in Cartesian (x, y) form
+        clipped_polygons: List of (obstacle_id, polygon) tuples where obstacle_id
+                         is the original index and polygon is in Cartesian (x, y) form.
+                         This preserves the original obstacle IDs even when some
+                         obstacles are filtered out during clipping.
         alpha_min: Minimum arc angle
         alpha_max: Maximum arc angle
         
     Returns:
-        Sorted list of AngularEvent objects with remapped angles when arc wraps
+        Sorted list of AngularEvent objects with remapped angles when arc wraps.
+        The obstacle_id in each event corresponds to the original obstacle index.
     """
     events: List[AngularEvent] = []
     
@@ -85,7 +89,7 @@ def build_events(
     remapped_alpha_min = alpha_min
     remapped_alpha_max = alpha_max + 2 * np.pi if arc_wraps else alpha_max
     
-    for obstacle_id, polygon in enumerate(clipped_polygons):
+    for obstacle_id, polygon in clipped_polygons:
         if polygon is None or len(polygon) < 3:
             continue
         
