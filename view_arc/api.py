@@ -2,8 +2,8 @@
 Public API interface definitions for obstacle detection within view arc.
 """
 
-from dataclasses import dataclass
-from typing import List, Optional, Tuple, Dict
+from dataclasses import dataclass, field
+from typing import List, Optional, Tuple, Dict, Any
 import numpy as np
 from numpy.typing import NDArray
 
@@ -14,7 +14,43 @@ from view_arc.geometry import (
     to_polar,
 )
 from view_arc.clipping import clip_polygon_to_wedge, is_valid_polygon
-from view_arc.sweep import build_events, compute_coverage
+from view_arc.sweep import build_events, compute_coverage, IntervalResult
+
+
+@dataclass
+class IntervalBreakdown:
+    """
+    Detailed breakdown of a single angular interval.
+    
+    Attributes:
+        angle_start: Start angle in radians
+        angle_end: End angle in radians
+        angular_span: Angular span in radians
+        obstacle_id: ID of the obstacle owning this interval
+        min_distance: Minimum distance within this interval
+        wraps: Whether the interval crosses the ±π discontinuity
+    """
+    angle_start: float
+    angle_end: float
+    angular_span: float
+    obstacle_id: int
+    min_distance: float
+    wraps: bool = False
+    
+    @property
+    def angular_span_deg(self) -> float:
+        """Angular span in degrees."""
+        return float(np.rad2deg(self.angular_span))
+    
+    @property
+    def angle_start_deg(self) -> float:
+        """Start angle in degrees."""
+        return float(np.rad2deg(self.angle_start))
+    
+    @property
+    def angle_end_deg(self) -> float:
+        """End angle in degrees."""
+        return float(np.rad2deg(self.angle_end))
 
 
 @dataclass
@@ -27,15 +63,77 @@ class ObstacleResult:
         angular_coverage: Total visible angular span in radians
         min_distance: Minimum distance encountered for this obstacle
         intervals: Optional list of (angle_start, angle_end) tuples showing owned angular intervals
+        interval_details: Optional list of detailed IntervalBreakdown objects with full info
+        all_coverage: Optional dict mapping all obstacle IDs to their coverage in radians
+        all_distances: Optional dict mapping all obstacle IDs to their minimum distances
     """
     obstacle_id: Optional[int]
     angular_coverage: float
     min_distance: float
     intervals: Optional[List[Tuple[float, float]]] = None
+    interval_details: Optional[List[IntervalBreakdown]] = None
+    all_coverage: Optional[Dict[int, float]] = None
+    all_distances: Optional[Dict[int, float]] = None
     
     def __bool__(self) -> bool:
         """Returns True if an obstacle was found."""
         return self.obstacle_id is not None
+    
+    @property
+    def angular_coverage_deg(self) -> float:
+        """Angular coverage in degrees."""
+        return float(np.rad2deg(self.angular_coverage))
+    
+    def get_all_intervals(self) -> List[IntervalBreakdown]:
+        """
+        Get all intervals (for all obstacles, not just the winner).
+        
+        Returns:
+            List of IntervalBreakdown objects, or empty list if not available
+        """
+        if self.interval_details is not None:
+            return self.interval_details
+        return []
+    
+    def get_winner_intervals(self) -> List[IntervalBreakdown]:
+        """
+        Get intervals owned by the winning obstacle only.
+        
+        Returns:
+            List of IntervalBreakdown objects for the winner, or empty list
+        """
+        if self.interval_details is None or self.obstacle_id is None:
+            return []
+        return [iv for iv in self.interval_details if iv.obstacle_id == self.obstacle_id]
+    
+    def summary(self) -> str:
+        """Generate a human-readable summary of the result."""
+        lines = []
+        
+        if self.obstacle_id is not None:
+            lines.append(f"Winner: Obstacle {self.obstacle_id}")
+            lines.append(f"  Coverage: {self.angular_coverage_deg:.2f}°")
+            lines.append(f"  Min Distance: {self.min_distance:.2f}")
+            
+            if self.intervals:
+                lines.append(f"  Intervals: {len(self.intervals)}")
+                for i, (start, end) in enumerate(self.intervals[:5]):
+                    lines.append(
+                        f"    [{i}] {np.rad2deg(start):.2f}° → {np.rad2deg(end):.2f}°"
+                    )
+                if len(self.intervals) > 5:
+                    lines.append(f"    ... and {len(self.intervals) - 5} more")
+        else:
+            lines.append("No obstacle visible in the view arc")
+        
+        if self.all_coverage:
+            lines.append("\nAll Obstacles:")
+            for oid in sorted(self.all_coverage.keys()):
+                cov_deg = np.rad2deg(self.all_coverage[oid])
+                dist = self.all_distances.get(oid, float('inf')) if self.all_distances else float('inf')
+                lines.append(f"  [{oid}] Coverage: {cov_deg:.2f}°, Min Distance: {dist:.2f}")
+        
+        return "\n".join(lines)
 
 
 def find_largest_obstacle(
@@ -44,7 +142,8 @@ def find_largest_obstacle(
     field_of_view_deg: float,
     max_range: float,
     obstacle_contours: List[NDArray[np.float32]],
-    return_intervals: bool = False
+    return_intervals: bool = False,
+    return_all_coverage: bool = False,
 ) -> ObstacleResult:
     """
     Find the obstacle with largest visible angular coverage within a view arc.
@@ -64,6 +163,7 @@ def find_largest_obstacle(
         max_range: Maximum sensing distance (radius) from viewer point
         obstacle_contours: List of obstacle polygons, each an (N, 2) array of vertices in image coordinates
         return_intervals: If True, include angular interval breakdown in result
+        return_all_coverage: If True, include coverage/distance for all obstacles (useful for debugging)
         
     Returns:
         ObstacleResult containing winner ID, coverage, distance, and optional intervals
@@ -213,7 +313,10 @@ def find_largest_obstacle(
             obstacle_id=None,
             angular_coverage=0.0,
             min_distance=float('inf'),
-            intervals=[] if return_intervals else None
+            intervals=[] if return_intervals else None,
+            interval_details=[] if return_intervals else None,
+            all_coverage={} if return_all_coverage else None,
+            all_distances={} if return_all_coverage else None,
         )
     
     # Find obstacle with maximum coverage
@@ -235,18 +338,40 @@ def find_largest_obstacle(
     # Step 6: Build result
     # -------------------------------------------------------------------------
     result_intervals: Optional[List[Tuple[float, float]]] = None
+    result_interval_details: Optional[List[IntervalBreakdown]] = None
     
-    if return_intervals and best_obstacle_id is not None:
-        # Filter intervals for the winning obstacle
-        result_intervals = [
-            (interval.angle_start, interval.angle_end)
-            for interval in intervals
-            if interval.obstacle_id == best_obstacle_id
+    if return_intervals:
+        # Build detailed interval breakdowns for all intervals
+        all_interval_details = [
+            IntervalBreakdown(
+                angle_start=iv.angle_start,
+                angle_end=iv.angle_end,
+                angular_span=iv.angle_end - iv.angle_start if iv.angle_end >= iv.angle_start 
+                            else (iv.angle_end + 2 * np.pi) - iv.angle_start,
+                obstacle_id=iv.obstacle_id,
+                min_distance=iv.min_distance,
+                wraps=iv.wraps,
+            )
+            for iv in intervals
         ]
+        result_interval_details = all_interval_details
+        
+        # Filter intervals for the winning obstacle (for backwards compatibility)
+        if best_obstacle_id is not None:
+            result_intervals = [
+                (interval.angle_start, interval.angle_end)
+                for interval in intervals
+                if interval.obstacle_id == best_obstacle_id
+            ]
+        else:
+            result_intervals = []
     
     return ObstacleResult(
         obstacle_id=best_obstacle_id,
         angular_coverage=best_coverage,
         min_distance=best_distance,
-        intervals=result_intervals
+        intervals=result_intervals,
+        interval_details=result_interval_details,
+        all_coverage=dict(coverage_dict) if return_all_coverage else None,
+        all_distances=dict(min_distance_dict) if return_all_coverage else None,
     )

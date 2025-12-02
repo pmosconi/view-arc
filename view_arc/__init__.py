@@ -6,7 +6,41 @@ Public API for finding the obstacle with largest visible angular coverage
 within a field-of-view arc from a viewer point.
 """
 
-from view_arc.api import find_largest_obstacle, ObstacleResult
+from view_arc.api import find_largest_obstacle, ObstacleResult, IntervalBreakdown
+from view_arc.debug import (
+    DebugResult,
+    ClipResult,
+    IntervalDebugInfo,
+    log_clipping_stage,
+    log_events,
+    log_interval_resolution,
+    log_coverage_summary,
+    log_result,
+    format_angle,
+    format_point,
+    format_polygon,
+    setup_debug_logging,
+    disable_debug_logging,
+)
 
-__all__ = ['find_largest_obstacle', 'ObstacleResult']
+__all__ = [
+    # Main API
+    'find_largest_obstacle',
+    'ObstacleResult',
+    'IntervalBreakdown',
+    # Debug utilities
+    'DebugResult',
+    'ClipResult',
+    'IntervalDebugInfo',
+    'log_clipping_stage',
+    'log_events',
+    'log_interval_resolution',
+    'log_coverage_summary',
+    'log_result',
+    'format_angle',
+    'format_point',
+    'format_polygon',
+    'setup_debug_logging',
+    'disable_debug_logging',
+]
 __version__ = '0.1.0'
