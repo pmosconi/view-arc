@@ -1,9 +1,10 @@
 """Real image processing example for the view_arc pipeline.
 
-This script shows how the obstacle detector can be paired with simple
-image processing logic to extract contours from a real photograph. The
-demo loads ``images/background.jpeg`` that ships with the repository,
-then visualises the winning obstacle and angular coverage overlay.
+This script demonstrates how the obstacle detector can work with
+manually annotated polygons. The demo loads the background image from
+``images/background.jpeg`` plus polygons stored in
+``images/polygon_vertices.json`` and then visualises the winning
+obstacle and angular coverage overlay.
 
 Run with::
 
@@ -12,12 +13,13 @@ Run with::
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
-from typing import List, cast
+from typing import Any, Dict, List, Mapping, Tuple, cast
 
 import numpy as np
 from numpy.typing import NDArray
-from skimage import color, filters, measure, morphology, io, util
+from skimage import color, io, util
 
 from view_arc import find_largest_obstacle
 from view_arc.api import ObstacleResult
@@ -26,65 +28,43 @@ from view_arc.visualize import draw_complete_visualization, HAS_CV2
 EXAMPLES_DIR = Path(__file__).resolve().parent
 PROJECT_ROOT = EXAMPLES_DIR.parent
 IMAGE_PATH = PROJECT_ROOT / "images" / "background.jpeg"
+POLYGON_PATH = PROJECT_ROOT / "images" / "polygon_vertices.json"
 OUTPUT_DIR = EXAMPLES_DIR / "output"
 OUTPUT_PATH = OUTPUT_DIR / "real_image_demo.png"
 
 
-def _polygon_area(vertices: NDArray[np.float32]) -> float:
-    """Compute the absolute area of a closed polygon using the shoelace formula."""
-
-    if vertices.shape[0] < 3:
-        return 0.0
-    x = vertices[:, 0]
-    y = vertices[:, 1]
-    return float(0.5 * np.abs(np.dot(x, np.roll(y, -1)) - np.dot(y, np.roll(x, -1))))
-
-
-def extract_obstacle_contours(
-    image: NDArray[np.uint8],
-    max_obstacles: int = 6,
-) -> List[NDArray[np.float32]]:
-    """Segment bright regions from an image and return polygonal contours."""
-
-    grayscale = color.rgb2gray(image)
-    blurred = filters.gaussian(grayscale, sigma=1.2)
-    threshold = filters.threshold_otsu(blurred)
-    mask = blurred > threshold
-    mask = morphology.remove_small_objects(mask, min_size=500)
-    mask = morphology.binary_closing(mask, footprint=np.ones((5, 5), dtype=bool))
-
-    contours = measure.find_contours(mask.astype(np.float32), level=0.5)
-
-    processed: List[NDArray[np.float32]] = []
-    for contour in contours:
-        if contour.shape[0] < 10:
-            continue
-
-        # Down-sample long contours to keep the polygon manageable
-        step = max(1, contour.shape[0] // 150)
-        contour = contour[::step]
-
-        # Convert from (row, col) to (x, y) with y growing downward (image coords)
-        polygon = np.column_stack((contour[:, 1], contour[:, 0])).astype(np.float32)
-        processed.append(polygon)
-
-    # Keep largest contours by projected area
-    processed.sort(key=_polygon_area, reverse=True)
-    return processed[:max_obstacles]
-
-
-def summarise_result(result: ObstacleResult) -> None:
+def summarise_result(
+    result: ObstacleResult,
+    index_to_id: Mapping[int, int] | None = None,
+) -> None:
     """Print summary information for the detection result."""
 
-    print(result.summary())
+    def _map_id(idx: int) -> int:
+        if index_to_id is not None:
+            return index_to_id.get(idx, idx)
+        return idx
+
+    if result.obstacle_id is not None:
+        winner_id = _map_id(result.obstacle_id)
+        print(f"Winner: Obstacle {winner_id}")
+        print(f"  Coverage: {result.angular_coverage_deg:.2f}°")
+        print(f"  Min Distance: {result.min_distance:.2f}")
+    else:
+        print("No obstacle visible in the view arc")
+
     print()
     if result.all_coverage:
-        print("Coverage per obstacle (degrees):")
-        for obstacle_id, coverage in sorted(result.all_coverage.items()):
+        print("Coverage per obstacle (by annotated id):")
+        for obstacle_index, coverage in sorted(result.all_coverage.items()):
+            display_id = _map_id(obstacle_index)
             coverage_deg = np.rad2deg(coverage)
-            min_distance = result.all_distances.get(obstacle_id, float("inf")) if result.all_distances else float("inf")
+            min_distance = (
+                result.all_distances.get(obstacle_index, float("inf"))
+                if result.all_distances
+                else float("inf")
+            )
             print(
-                f"  {obstacle_id}: {coverage_deg:.2f}° coverage, min_distance={min_distance:.2f}"
+                f"  {display_id}: {coverage_deg:.2f}° coverage, min_distance={min_distance:.2f}"
             )
 
 
@@ -105,20 +85,75 @@ def load_scene_image() -> NDArray[np.uint8]:
     return cast(NDArray[np.uint8], image.astype(np.uint8, copy=False))
 
 
+def load_obstacle_contours(
+    polygon_file: Path,
+) -> Tuple[List[NDArray[np.float32]], Dict[int, int]]:
+    """Load manually annotated polygons from JSON and return contours with ID mapping.
+
+    Returns:
+        A tuple of (obstacles, index_to_id) where obstacles is a list of polygon
+        arrays and index_to_id maps list indices to the original annotation IDs.
+    """
+
+    if not polygon_file.exists():
+        raise SystemExit(
+            f"Polygon annotation file not found at {polygon_file}. "
+            "Create it or adjust POLYGON_PATH."
+        )
+
+    with polygon_file.open("r", encoding="utf-8") as handle:
+        try:
+            data = json.load(handle)
+        except json.JSONDecodeError as exc:
+            raise SystemExit(f"Failed to parse {polygon_file}: {exc}") from exc
+
+    obstacles: List[NDArray[np.float32]] = []
+    index_to_id: Dict[int, int] = {}
+
+    for entry in data:
+        if not isinstance(entry, dict):
+            continue
+        vertices: Any = entry.get("vertices")
+        if not isinstance(vertices, list) or len(vertices) < 3:
+            continue
+        try:
+            polygon = np.array(vertices, dtype=np.float32)
+        except ValueError as exc:
+            raise SystemExit(
+                f"Invalid vertex data for entry {entry.get('id')}: {exc}"
+            ) from exc
+        if polygon.ndim != 2 or polygon.shape[1] != 2:
+            raise SystemExit(
+                f"Polygon {entry.get('id')} does not contain 2D vertices:"
+                f" shape={polygon.shape}"
+            )
+        obstacles.append(polygon)
+        try:
+            index_to_id[len(obstacles) - 1] = int(entry["id"])
+        except (KeyError, TypeError, ValueError):
+            index_to_id[len(obstacles) - 1] = len(obstacles) - 1
+
+    if not obstacles:
+        raise SystemExit(
+            f"No valid polygons found in {polygon_file}. Ensure the JSON contains "
+            "objects with 'id' and 'vertices' keys."
+        )
+
+    return obstacles, index_to_id
+
+
 def main() -> None:
     """Run obstacle detection on a real image and optionally visualise the result."""
 
     image = load_scene_image()
     height, width, _ = image.shape
 
-    viewer_point = np.array([width / 2.0, 40.0], dtype=np.float32)
-    view_direction = np.array([0.378, 0.925], dtype=np.float32)  # looking toward the bottom-right of the image
+    viewer_point = np.array([350, 200.0], dtype=np.float32)
+    view_direction = np.array([0.378, -0.925], dtype=np.float32)
     field_of_view_deg = 45.0
-    max_range = height * 0.4
+    max_range = 60.0
 
-    obstacles = extract_obstacle_contours(image, max_obstacles=6)
-    if not obstacles:
-        raise SystemExit("No contours detected; adjust segmentation parameters in extract_obstacle_contours().")
+    obstacles, index_to_id = load_obstacle_contours(POLYGON_PATH)
 
     result = find_largest_obstacle(
         viewer_point=viewer_point,
@@ -130,13 +165,19 @@ def main() -> None:
         return_all_coverage=True,
     )
 
-    summarise_result(result)
+    summarise_result(result, index_to_id=index_to_id)
 
     if not HAS_CV2:
         print("OpenCV not installed; skipping visualization output.")
         return
 
-    intervals = [(interval.angle_start, interval.angle_end) for interval in result.get_all_intervals()]
+    intervals = [
+        (interval.angle_start, interval.angle_end)
+        for interval in result.get_all_intervals()
+    ]
+
+    # Build labels from the annotation IDs
+    obstacle_labels = [str(index_to_id.get(i, i)) for i in range(len(obstacles))]
 
     visualization = draw_complete_visualization(
         image.astype(np.uint8),
@@ -147,6 +188,7 @@ def main() -> None:
         obstacle_contours=obstacles,
         winner_id=result.obstacle_id,
         intervals=intervals,
+        obstacle_labels=obstacle_labels,
     )
 
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)

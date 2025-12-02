@@ -148,6 +148,7 @@ def draw_obstacle_contours(
     winner_color: Tuple[int, int, int] = (0, 0, 255),
     thickness: int = 2,
     show_labels: bool = False,
+    labels: Optional[List[str]] = None,
 ) -> NDArray[np.uint8]:
     """
     Draw obstacle contours, highlighting the winner.
@@ -160,6 +161,7 @@ def draw_obstacle_contours(
         winner_color: BGR color for winning obstacle
         thickness: Line thickness
         show_labels: If True, draw obstacle index labels at centroids
+        labels: Optional list of custom label strings (one per contour)
 
     Returns:
         Image with contour overlays (modified copy)
@@ -188,7 +190,7 @@ def draw_obstacle_contours(
             cx, cy = int(round(centroid[0])), int(round(centroid[1]))
 
             # Draw label background
-            label = str(idx)
+            label = labels[idx] if labels and idx < len(labels) else str(idx)
             font = cv2.FONT_HERSHEY_SIMPLEX
             font_scale = 0.6
             label_thickness = 2
@@ -319,6 +321,7 @@ def draw_complete_visualization(
     default_obstacle_color: Tuple[int, int, int] = (255, 0, 0),
     winner_obstacle_color: Tuple[int, int, int] = (0, 0, 255),
     interval_color: Tuple[int, int, int] = (255, 255, 0),
+    obstacle_labels: Optional[List[str]] = None,
 ) -> NDArray[np.uint8]:
     """
     Draw a complete visualization with wedge, obstacles, and intervals.
@@ -339,6 +342,7 @@ def draw_complete_visualization(
         default_obstacle_color: BGR color for non-winning obstacles
         winner_obstacle_color: BGR color for winning obstacle
         interval_color: BGR color for interval rays
+        obstacle_labels: Optional list of custom label strings for obstacles
 
     Returns:
         Image with complete visualization overlay
@@ -377,6 +381,7 @@ def draw_complete_visualization(
         default_color=default_obstacle_color,
         winner_color=winner_obstacle_color,
         show_labels=True,
+        labels=obstacle_labels,
     )
 
     return output
