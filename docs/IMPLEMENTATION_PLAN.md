@@ -228,13 +228,13 @@ Implement the obstacle detection algorithm following a test-driven development a
 - `draw_angular_intervals()` - interval ray visualization
 
 **Tests to Create:**
-- `tests/test_visualize.py`:
+- `tests/visual/test_visualize.py`:
   - `test_draw_wedge_overlay_basic()` - verify image modified
   - `test_draw_wedge_overlay_various_fovs()` - different angles
   - `test_draw_obstacle_contours_no_winner()` - default color for all
   - `test_draw_obstacle_contours_with_winner()` - highlight winner
   - `test_draw_angular_intervals_multiple()` - render several intervals
-  - Manual visual tests (saved to `tests/output/` directory)
+  - Manual visual tests (saved to `tests/visual/output/` directory)
 
 **Validation:**
 - Visual inspection of generated images
@@ -316,7 +316,7 @@ Implement the obstacle detection algorithm following a test-driven development a
 3. **`tests/test_sweep.py`** (~20 tests) - event construction, interval resolution, coverage computation
 4. **`tests/test_api.py`** (~15 tests) - main API function with various inputs
 5. **`tests/test_api_integration.py`** (~10 tests) - real-world scenarios
-6. **`tests/test_visualize.py`** (~8 tests) - visualization functions
+6. **`tests/visual/test_visualize.py`** (~8 tests) - visualization functions
 7. **`tests/test_performance.py`** (~5 tests) - performance benchmarks
 8. **`tests/test_debug_scenarios.py`** (~5 tests) - edge cases and bug reproductions
 
