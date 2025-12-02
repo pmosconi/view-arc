@@ -386,11 +386,6 @@ def _find_min_distance_at_angle(
         
         if min_dist is None or r < min_dist:
             min_dist = r
-            # Early exit: if we find something very close, it's unlikely
-            # to be occluded by anything closer. This is a heuristic that
-            # works well for typical obstacle scenarios.
-            if min_dist < 10.0:  # Very close obstacle found
-                break
     
     return min_dist
 
