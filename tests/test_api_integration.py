@@ -111,13 +111,19 @@ class TestScenarioPersonLookingUp:
         assert result.min_distance < 100  # Should be relatively close
 
     def test_multiple_obstacles_at_different_distances(self) -> None:
-        """Person looking up sees multiple obstacles at varying distances."""
+        """Person looking up sees multiple obstacles at varying distances.
+        
+        The near obstacle (id=0) is closer (distance ~40 vs ~120) and even
+        though it's smaller (half_size=10 vs 40), its proximity gives it
+        larger angular coverage. Angular coverage scales inversely with distance.
+        """
         viewer = np.array([200.0, 200.0], dtype=np.float32)
         direction = np.array([0.0, 1.0], dtype=np.float32)
 
-        # Near obstacle (small)
+        # Near obstacle (small but close) - angular coverage ~ 2*atan(10/40) ~ 28°
         near_obstacle = make_square((200, 240), half_size=10)
-        # Far obstacle (large) - partially occluded
+        # Far obstacle (large but distant) - angular coverage ~ 2*atan(40/120) ~ 37°
+        # However, near obstacle occludes part of far obstacle, reducing its visible coverage
         far_obstacle = make_square((200, 320), half_size=40)
 
         contours = [near_obstacle, far_obstacle]
@@ -130,9 +136,17 @@ class TestScenarioPersonLookingUp:
             obstacle_contours=contours,
         )
 
-        # Should detect an obstacle
-        assert result.obstacle_id is not None
+        # The near obstacle should win because its angular coverage (~37°)
+        # exceeds the far obstacle's remaining visible coverage after occlusion
+        assert result.obstacle_id == 0, (
+            f"Expected near obstacle (id=0) to win due to proximity advantage, "
+            f"but got obstacle {result.obstacle_id}"
+        )
         assert result.angular_coverage > 0
+        # Near obstacle's min distance should be around 30 (240 - 200 - 10)
+        assert result.min_distance < 40, (
+            f"Expected min_distance < 40 for near obstacle, got {result.min_distance}"
+        )
 
     def test_obstacles_on_either_side(self) -> None:
         """Person looking up with obstacles to the left and right."""
@@ -315,13 +329,19 @@ class TestScenarioCloseVsFarObstacles:
     """
 
     def test_closer_obstacle_occludes_farther(self) -> None:
-        """A closer obstacle should occlude a farther one behind it."""
+        """A closer obstacle should occlude a farther one behind it.
+        
+        The close obstacle (half_size=8 at distance ~30) has larger angular
+        coverage than its absolute size would suggest. Angular coverage
+        scales as ~2*atan(size/distance), so proximity is a major factor.
+        The close obstacle also blocks part of the far obstacle.
+        """
         viewer = np.array([100.0, 100.0], dtype=np.float32)
         direction = np.array([0.0, 1.0], dtype=np.float32)
 
-        # Close small obstacle
+        # Close small obstacle - angular coverage ~ 2*atan(8/22) ~ 40°
         close_obs = make_square((100, 130), half_size=8)
-        # Far large obstacle directly behind
+        # Far large obstacle - angular coverage ~ 2*atan(30/70) ~ 46° but reduced by occlusion
         far_obs = make_square((100, 200), half_size=30)
 
         contours = [close_obs, far_obs]
@@ -334,20 +354,34 @@ class TestScenarioCloseVsFarObstacles:
             obstacle_contours=contours,
         )
 
-        # The winner depends on how much of the far obstacle is still visible
-        # after the close one occludes its center
-        assert result.obstacle_id is not None
+        # The close obstacle wins because its angular coverage exceeds
+        # the far obstacle's remaining visible coverage after occlusion
+        assert result.obstacle_id == 0, (
+            f"Expected close obstacle (id=0) to win due to proximity advantage, "
+            f"but got obstacle {result.obstacle_id}"
+        )
         assert result.angular_coverage > 0
+        # Close obstacle's min distance should be around 22 (130 - 100 - 8)
+        assert result.min_distance < 30, (
+            f"Expected min_distance < 30 for close obstacle, got {result.min_distance}"
+        )
 
     def test_tie_breaking_closer_wins(self) -> None:
-        """When angular coverage is similar, closer obstacle should win."""
+        """When angular coverage is similar, closer obstacle should win.
+        
+        Two identically-sized obstacles at different distances but placed
+        such that they have similar angular coverage (closer one is smaller
+        in absolute size but appears similar due to distance).
+        """
         viewer = np.array([0.0, 0.0], dtype=np.float32)
         direction = np.array([0.0, 1.0], dtype=np.float32)
 
-        # Two obstacles at different distances but similar angular sizes
-        # Place them at different angles to avoid occlusion
-        close_left = make_square((-30, 40), half_size=10)
-        far_right = make_square((50, 80), half_size=20)  # Larger but farther
+        # Two obstacles designed to have approximately equal angular coverage:
+        # - Close obstacle at distance ~50 with half_size=12.5
+        # - Far obstacle at distance ~100 with half_size=25 (twice the size at twice the distance)
+        # Angular coverage ≈ 2 * atan(half_size / distance) should be similar
+        close_left = make_square((-25, 50), half_size=12)
+        far_right = make_square((50, 100), half_size=24)  # ~2x size at ~2x distance
 
         contours = [close_left, far_right]
 
@@ -359,8 +393,15 @@ class TestScenarioCloseVsFarObstacles:
             obstacle_contours=contours,
         )
 
-        # One should win
-        assert result.obstacle_id is not None
+        # With similar angular coverage, the closer obstacle should win as tie-breaker
+        assert result.obstacle_id == 0, (
+            f"Expected closer obstacle (id=0) to win tie-breaker, "
+            f"but got obstacle {result.obstacle_id}"
+        )
+        # Verify the min_distance corresponds to the close obstacle (~38 = 50 - 12)
+        assert result.min_distance < 50, (
+            f"Expected min_distance < 50 for close obstacle, got {result.min_distance}"
+        )
 
     def test_very_close_obstacle_large_angular_coverage(self) -> None:
         """Very close obstacle should have large angular coverage."""
@@ -417,13 +458,21 @@ class TestScenarioLargeVsNarrowObstacles:
         assert result.obstacle_id == 0
 
     def test_tall_vs_wide_obstacle(self) -> None:
-        """Compare tall obstacle (perpendicular) vs wide obstacle."""
+        """Compare tall obstacle (perpendicular) vs wide obstacle.
+        
+        The wide obstacle (id=1) is closer and has greater horizontal extent,
+        which translates to more angular coverage. The tall obstacle's height
+        doesn't contribute to angular coverage (only width matters for the
+        angular span from the viewer's perspective).
+        """
         viewer = np.array([0.0, 0.0], dtype=np.float32)
         direction = np.array([0.0, 1.0], dtype=np.float32)
 
         # Tall but narrow (extends perpendicular to view direction)
+        # Angular coverage ≈ 2 * atan(5 / 70) ≈ 8.2°
         tall_narrow = make_rectangle((0, 70), width=10, height=50)
-        # Wide but short
+        # Wide but short - closer and wider
+        # Angular coverage ≈ 2 * atan(25 / 40) ≈ 64°
         wide_short = make_rectangle((0, 40), width=50, height=10)
 
         contours = [tall_narrow, wide_short]
@@ -436,8 +485,15 @@ class TestScenarioLargeVsNarrowObstacles:
             obstacle_contours=contours,
         )
 
-        # The closer wide obstacle should win
-        assert result.obstacle_id is not None
+        # The closer wide obstacle (id=1) should win due to greater angular coverage
+        assert result.obstacle_id == 1, (
+            f"Expected wide obstacle (id=1) to win with greater angular coverage, "
+            f"but got obstacle {result.obstacle_id}"
+        )
+        # Verify min_distance corresponds to the wide obstacle (~35 = 40 - 5)
+        assert result.min_distance < 40, (
+            f"Expected min_distance < 40 for wide obstacle, got {result.min_distance}"
+        )
 
     def test_small_obstacle_filling_fov(self) -> None:
         """Small obstacle that fills most of a narrow FOV."""
