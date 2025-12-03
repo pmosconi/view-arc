@@ -19,6 +19,29 @@ Extend the view arc obstacle detection system to accumulate "eyeballs" (viewing 
 
 ---
 
+## Review Summary (Dec 3, 2025)
+
+### Strengths
+- Solid phase breakdown that reuses the mature `find_largest_obstacle()` core while layering tracking-specific logic.
+- Comprehensive testing mindset that spans unit, visual, and performance coverage.
+- Clear deliverables (new module, API wiring, docs, and examples) that make adoption straightforward.
+
+### Risks & Improvement Areas
+- 1 Hz sampling is a hard requirement upstream; our code should loudly document the assumption but avoid redundant validation that adds no value.
+- Input validation refers to "out-of-bounds" positions without defining the scene coordinate system or image extents.
+- Visualization and performance work start before we have instrumentation for accuracy drift or profiling hooks, making regressions harder to spot.
+- Result structs lack space for session-level metadata (e.g., acquisition ID, frame size, sampling constraints), which complicates auditing.
+
+### Confirmed Constraints & Scope
+- Samples arrive strictly at 1 Hz; each hit counts for exactly one second and no interpolation is performed.
+- Sample timestamps, when provided, are monotonically increasing; deviations should fail validation.
+- AOI contours stay fixed in the same coordinate space as the viewer samples; no runtime transforms required.
+- Each batch tracks a single viewer; multi-viewer aggregation happens outside this API.
+
+The plan below incorporates adjustments based on these findings; new/changed steps are marked as **NEW** or called out explicitly.
+
+---
+
 ## Phase 1: Data Structures & Input Validation (Day 1)
 
 ### Step 1.1: Core Data Structures
@@ -92,6 +115,27 @@ class TrackingResult:
 
 ---
 
+### Step 1.3: Session Configuration Schema (**NEW**)
+**Implementation in `view_arc/tracking.py`:**
+- `SessionConfig` dataclass gathers immutable acquisition metadata:
+  - `session_id: str`
+  - `frame_size: tuple[int, int] | None` (image width/height for bounds checks)
+  - `coordinate_space: Literal["image"] = "image"` (documented constant)
+  - `sample_interval_seconds: float = 1.0` (record the upstream cadence without re-validating it)
+  - `viewer_id: str | None` (in case the batch needs cross-referencing upstream)
+  - `notes: dict[str, Any] | None` for downstream analytics
+**Tests to Create (extend `tests/test_tracking.py`):**
+- `test_session_config_defaults_applied()`
+- `test_session_config_allows_custom_viewer_metadata()`
+- `test_validate_samples_respects_frame_size()` (moved from Step 1.2 rationale).
+
+**Validation:**
+- Every tracking run emits a `SessionConfig` that downstream consumers embed in reports/logs.
+- Viewer sample validation gains explicit knowledge of coordinate bounds when available.
+- Coordinate space is explicitly documented as invariant (image pixels) throughout each batch.
+
+---
+
 ## Phase 2: Core Tracking Algorithm (Days 2-3)
 
 ### Step 2.1: Single-Sample Processing Wrapper
@@ -121,7 +165,8 @@ class TrackingResult:
   - Accepts batch of ViewerSamples and list of AOIs
   - Iterates through samples, calling `find_largest_obstacle()` for each
   - Accumulates hit counts per AOI
-  - Returns TrackingResult with complete statistics
+  - Assumes each processed sample represents exactly 1 second of attention
+  - Returns `TrackingResult` with complete statistics and embedded `SessionConfig`
 
 **Function Signature:**
 ```python
@@ -130,7 +175,8 @@ def compute_eyeballs(
     aois: list[AOI],
     fov_deg: float = 90.0,
     max_range: float = 500.0,
-    sample_interval: float = 1.0,  # seconds between samples
+    sample_interval: float = 1.0,
+    session_config: SessionConfig | None = None,
 ) -> TrackingResult:
 ```
 
@@ -149,6 +195,7 @@ def compute_eyeballs(
 - Total hits across AOIs ≤ total samples
 - Hit counts sum correctly
 - All AOI IDs present in result (even with 0 hits)
+- Total eyeball seconds equals `hit_count × 1s`
 
 ---
 
@@ -170,6 +217,20 @@ def compute_eyeballs(
 **Validation:**
 - All formats produce identical results
 - Clear errors for malformed inputs
+
+---
+
+### Step 2.4: Sampling Assumptions Documentation (**UPDATED**)
+**Implementation in `view_arc/tracking.py` + docs:**
+- Clearly document (module docstrings, README snippet, and `SessionConfig`) that upstream ingestion guarantees monotonic timestamps and a strict 1 Hz cadence. Our tracking loop therefore treats every accepted sample as 1 second without extra checks.
+- Ensure `TrackingResult` exposes `assumptions: tuple[str, ...]` or similar metadata so downstream analytics always know the data quality contract without per-sample flags.
+
+**Tests to Create:**
+- Documentation lint/check to ensure the invariant text stays in README (simple `pytest` doc test or `pytest --doctest-glob` entry).
+
+**Validation:**
+- Sampling/time-ordering invariants remain clearly communicated though not re-validated, which keeps the implementation lightweight while preventing misuse.
+- Consumers inspecting a `TrackingResult` can see which assumptions were applied without scanning logs.
 
 ---
 
@@ -206,7 +267,7 @@ def compute_eyeballs(
   - `coverage_ratio` - fraction of samples with a hit
   - `dominant_aoi` - AOI with most hits (or None)
   - `engagement_score` - weighted score based on distribution
-  - `session_duration` - total time covered
+  - `session_duration` - total time covered (= total samples × 1 s)
 
 **Tests to Create:**
 - `tests/test_tracking_results.py` (continued):
@@ -215,7 +276,7 @@ def compute_eyeballs(
   - `test_coverage_ratio_partial()` - typical case
   - `test_dominant_aoi_clear_winner()` - one AOI dominates
   - `test_dominant_aoi_tie()` - multiple equal winners
-  - `test_session_duration_calculation()` - samples × interval
+  - `test_session_duration_calculation()` - total samples × 1 s
 
 **Validation:**
 - Statistics match manual calculations
@@ -396,6 +457,21 @@ Defer this optimization until after the basic implementation is complete. Profil
 
 ---
 
+### Step 6.4: Instrumentation & Regression Guardrails (**NEW**)
+**Implementation:**
+- Add lightweight profiling hooks (timing + sample counters) inside `compute_eyeballs()` gated by a debug flag.
+- Extend `profile_workload.py` to compare new tracking runs against a golden baseline (Runtime + accuracy on canned fixture) and emit alerts when drift exceeds thresholds.
+- Capture peak memory and cache-hit ratios during performance tests and persist them under `examples/output/profile_runs.csv` for trend tracking.
+
+**Tests/Automation:**
+- `tests/test_tracking_performance.py::test_profile_hook_smoke()` ensures the instrumentation flag does not alter results.
+- CI workflow step to run `python profile_workload.py --scenario tracking_baseline` weekly (documented in README).
+
+**Validation:**
+- Performance regressions are caught early, and instrumentation can be toggled without code changes.
+
+---
+
 ## Phase 7: Integration Testing & Examples (Day 8)
 
 ### Step 7.1: Realistic Scenario Tests
@@ -454,6 +530,17 @@ Defer this optimization until after the basic implementation is complete. Profil
 **Validation:**
 - `mypy view_arc/tracking.py` passes
 - All linters pass
+
+---
+
+### Step 8.3: Operational Notes & Dev Ergonomics (**NEW**)
+**Implementation:**
+- Document the `uv`-based virtual environment workflow (create, sync, run mypy) directly in README and `docs/IMPLEMENTATION_PLAN.md` so new contributors follow the same tooling.
+- Provide a `make tracking-check` (or `uv run`) recipe that chains: mypy → targeted pytest suites → profile smoke test.
+- Capture any required environment variables (e.g., data paths) in `.env.example` referenced by the docs.
+
+**Validation:**
+- Onboarding a new engineer only requires running the documented `uv` commands to reproduce tracking results and type checks.
 
 ---
 

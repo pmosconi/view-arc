@@ -63,6 +63,14 @@ can explore via ``help(view_arc.find_largest_obstacle)``.
 
 Run every example with ``uv run python <script>`` so that dependencies resolve inside the project environment.
 
+## Tracking Assumptions
+
+Temporal eyeball tracking (see `docs/TRACKING_PLAN.md`) relies on two upstream guarantees that we do **not** re-validate at runtime:
+- Viewer samples arrive exactly at 1 Hz, so each accepted hit represents one second of attention.
+- Viewer positions, directions, and AOI contours all share the same immutable image-coordinate space for the entire batch.
+
+Any pipeline feeding `compute_eyeballs()` must uphold these invariants to keep the reported metrics meaningful.
+
 ## Type Checking
 
 Mypy is configured with ``disallow_untyped_defs`` and must remain clean:
