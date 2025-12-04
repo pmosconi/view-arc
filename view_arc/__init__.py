@@ -22,12 +22,25 @@ from view_arc.debug import (
     setup_debug_logging,
     disable_debug_logging,
 )
+from view_arc.tracking import (
+    ViewerSample,
+    AOI,
+    AOIResult,
+    TrackingResult,
+    ValidationError,
+)
 
 __all__ = [
     # Main API
     'find_largest_obstacle',
     'ObstacleResult',
     'IntervalBreakdown',
+    # Tracking API
+    'ViewerSample',
+    'AOI',
+    'AOIResult',
+    'TrackingResult',
+    'ValidationError',
     # Debug utilities
     'DebugResult',
     'ClipResult',
