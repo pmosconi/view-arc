@@ -1,7 +1,7 @@
-# Implementation Plan: Temporal Eyeball Tracking
+# Implementation Plan: Temporal Attention Tracking
 
 ## Overview
-Extend the view arc obstacle detection system to accumulate "eyeballs" (viewing time in seconds) across multiple viewer positions and view directions over a batched acquisition period. This leverages the existing `find_largest_obstacle()` API to determine which area of interest (AOI) is being viewed at each timestamp.
+Extend the view arc obstacle detection system to accumulate "attention seconds" across multiple viewer positions and view directions over a batched acquisition period. This leverages the existing `find_largest_obstacle()` API to determine which area of interest (AOI) is being viewed at each timestamp.
 
 ## Context
 - **Use Case**: Track viewer attention on store shelves/displays over time
@@ -13,32 +13,16 @@ Extend the view arc obstacle detection system to accumulate "eyeballs" (viewing 
 
 ## Terminology
 - **AOI (Area of Interest)**: Represents shelves or display areas in a store (previously called "obstacle")
-- **Eyeball**: A single second of viewing time attributed to an AOI
+- **Attention Second**: A single second of viewing time attributed to an AOI (legacy references may still call this an "eyeball")
 - **Hit**: When an AOI is selected as the largest visible object at a given timestamp
 - **Session**: A complete acquisition period (potentially minutes) with 1 sample/second
 
----
-
-## Review Summary (Dec 3, 2025)
-
-### Strengths
-- Solid phase breakdown that reuses the mature `find_largest_obstacle()` core while layering tracking-specific logic.
-- Comprehensive testing mindset that spans unit, visual, and performance coverage.
-- Clear deliverables (new module, API wiring, docs, and examples) that make adoption straightforward.
-
-### Risks & Improvement Areas
-- 1 Hz sampling is a hard requirement upstream; our code should loudly document the assumption but avoid redundant validation that adds no value.
-- Input validation refers to "out-of-bounds" positions without defining the scene coordinate system or image extents.
-- Visualization and performance work start before we have instrumentation for accuracy drift or profiling hooks, making regressions harder to spot.
-- Result structs lack space for session-level metadata (e.g., acquisition ID, frame size, sampling constraints), which complicates auditing.
 
 ### Confirmed Constraints & Scope
 - Samples arrive strictly at 1 Hz; each hit counts for exactly one second and no interpolation is performed.
-- Sample timestamps, when provided, are monotonically increasing; deviations should fail validation.
+- Sample timestamps, when provided, are already sorted upstream; we consume them as-is without enforcing ordering because doing so would not change the outcome under fixed-cadence sampling.
 - AOI contours stay fixed in the same coordinate space as the viewer samples; no runtime transforms required.
 - Each batch tracks a single viewer; multi-viewer aggregation happens outside this API.
-
-The plan below incorporates adjustments based on these findings; new/changed steps are marked as **NEW** or called out explicitly.
 
 ---
 
@@ -68,7 +52,7 @@ class AOI:
 class AOIResult:
     aoi_id: str | int
     hit_count: int  # number of times selected as winner
-    total_eyeball_seconds: float  # = hit_count × sample_interval
+  total_attention_seconds: float  # = hit_count × sample_interval
     hit_timestamps: list[int]  # indices of samples where this AOI won
 
 @dataclass
@@ -115,7 +99,7 @@ class TrackingResult:
 
 ---
 
-### Step 1.3: Session Configuration Schema (**NEW**)
+### Step 1.3: Session Configuration Schema 
 **Implementation in `view_arc/tracking.py`:**
 - `SessionConfig` dataclass gathers immutable acquisition metadata:
   - `session_id: str`
@@ -161,7 +145,7 @@ class TrackingResult:
 
 ### Step 2.2: Batch Processing Function
 **Implementation in `view_arc/tracking.py`:**
-- `compute_eyeballs()` - main entry point that:
+- `compute_attention_seconds()` - main entry point that:
   - Accepts batch of ViewerSamples and list of AOIs
   - Iterates through samples, calling `find_largest_obstacle()` for each
   - Accumulates hit counts per AOI
@@ -170,7 +154,7 @@ class TrackingResult:
 
 **Function Signature:**
 ```python
-def compute_eyeballs(
+def compute_attention_seconds(
     samples: list[ViewerSample] | np.ndarray,
     aois: list[AOI],
     fov_deg: float = 90.0,
@@ -182,20 +166,20 @@ def compute_eyeballs(
 
 **Tests to Create:**
 - `tests/test_tracking.py` (continued):
-  - `test_compute_eyeballs_single_sample()` - trivial case
-  - `test_compute_eyeballs_all_same_aoi()` - viewer stares at one AOI
-  - `test_compute_eyeballs_alternating_aois()` - viewer looks left/right
-  - `test_compute_eyeballs_no_hits()` - viewer never looks at AOIs
-  - `test_compute_eyeballs_partial_hits()` - some samples hit, some miss
-  - `test_compute_eyeballs_hit_count_accuracy()` - verify counts
-  - `test_compute_eyeballs_all_aois_represented()` - all AOIs in result
-  - `test_compute_eyeballs_timestamps_recorded()` - hit indices tracked
+  - `test_compute_attention_single_sample()` - trivial case
+  - `test_compute_attention_all_same_aoi()` - viewer stares at one AOI
+  - `test_compute_attention_alternating_aois()` - viewer looks left/right
+  - `test_compute_attention_no_hits()` - viewer never looks at AOIs
+  - `test_compute_attention_partial_hits()` - some samples hit, some miss
+  - `test_compute_attention_hit_count_accuracy()` - verify counts
+  - `test_compute_attention_all_aois_represented()` - all AOIs in result
+  - `test_compute_attention_timestamps_recorded()` - hit indices tracked
 
 **Validation:**
 - Total hits across AOIs ≤ total samples
 - Hit counts sum correctly
 - All AOI IDs present in result (even with 0 hits)
-- Total eyeball seconds equals `hit_count × 1s`
+- Total attention seconds equals `hit_count × 1s`
 
 ---
 
@@ -286,17 +270,15 @@ def compute_eyeballs(
 
 ## Phase 4: Integration with Existing API (Day 5)
 
-### Step 4.1: API Module Extension
-**Implementation in `view_arc/api.py`:**
-- Add `compute_eyeballs()` as public API function (re-export from tracking)
+- Add `compute_attention_seconds()` as public API function (re-export from tracking)
 - Ensure consistent parameter naming with `find_largest_obstacle()`
 - Add re-export in `view_arc/__init__.py`
 
 **Tests to Create:**
 - `tests/test_api_tracking.py`:
-  - `test_compute_eyeballs_api_accessible()` - import from view_arc
-  - `test_compute_eyeballs_matches_manual_loop()` - same results as manual iteration
-  - `test_compute_eyeballs_parameter_consistency()` - FOV, max_range work same as single-frame
+  - `test_compute_attention_api_accessible()` - import from view_arc
+  - `test_compute_attention_matches_manual_loop()` - same results as manual iteration
+  - `test_compute_attention_parameter_consistency()` - FOV, max_range work same as single-frame
 
 **Validation:**
 - Public API is clean and documented
@@ -386,9 +368,24 @@ def compute_eyeballs(
 
 ## Phase 6: Performance Considerations (Day 7)
 
-### Step 6.1: Batch Optimization Opportunities
+### Step 6.1: Instrumentation & Regression Guardrails 
+**Implementation:**
+- Add lightweight profiling hooks (timing + sample counters) inside `compute_attention_seconds()` gated by a debug flag.
+- Extend `profile_workload.py` to compare new tracking runs against a golden baseline (Runtime + accuracy on canned fixture) and emit alerts when drift exceeds thresholds.
+- Capture peak memory and cache-hit ratios during performance tests and persist them under `examples/output/profile_runs.csv` for trend tracking.
+
+**Tests/Automation:**
+- `tests/test_tracking_performance.py::test_profile_hook_smoke()` ensures the instrumentation flag does not alter results.
+- CI workflow step to run `python profile_workload.py --scenario tracking_baseline` weekly (documented in README).
+
+**Validation:**
+- Performance regressions are caught early, and instrumentation can be toggled without code changes.
+
+---
+
+### Step 6.2: Batch Optimization Opportunities
 **Analysis and minimal optimization:**
-- Profile `compute_eyeballs()` on large sessions (300+ samples)
+- Profile `compute_attention_seconds()` on large sessions (300+ samples)
 - Identify if any pre-computation helps (e.g., pre-clip AOIs to max_range circle)
 - Consider caching AOI bounding boxes (already computed per call)
 
@@ -397,10 +394,23 @@ def compute_eyeballs(
 - Vectorize sample iteration where possible
 - Early exit for samples clearly outside all AOI regions
 
-### Step 6.2: Result Caching for Similar Samples (Optional - Investigate)
+**Tests to Create:**
+- `tests/test_tracking_performance.py`:
+  - `test_performance_long_session()` - 300 samples (5 min session)
+  - `test_performance_many_aois()` - 50+ areas of interest
+  - `test_performance_complex_aoi_contours()` - AOIs with many vertices
+  - Benchmark: target <1s for 300 samples × 20 AOIs
+
+**Validation:**
+- Performance acceptable for expected use cases
+- No regression in accuracy from optimizations
+
+---
+
+### Step 6.3: Result Caching for Similar Samples (Optional - Investigate)
 **Concept:**
-When consecutive samples have nearly identical viewer position and view direction, the `find_largest_obstacle()` result will be the same. We could potentially:
-- Cache the winning AOI ID along with the (position, direction) that produced it
+When consecutive samples have nearly identical viewer position and view direction, the `find_largest_obstacle()` result will be the same. A per-batch, in-memory cache can:
+- Store the winning AOI ID along with the (position, direction) that produced it
 - For new samples, check if they are "close enough" to a cached result to reuse it
 - Skip the full clipping/sweep computation when a cache hit occurs
 
@@ -417,8 +427,9 @@ When consecutive samples have nearly identical viewer position and view directio
 | Memory overhead is minimal (store position, direction, winner ID) | Threshold tuning required |
 | | May introduce subtle inaccuracies at edge cases |
 
-**Recommendation:**
-Defer this optimization until after the basic implementation is complete. Profile first to determine if the simple loop is already fast enough (<1s target). If profiling shows `find_largest_obstacle()` is the bottleneck and many consecutive samples are similar, then implement caching.
+- **Recommendation:**
+- Keep the cache lifetime scoped strictly to a single `compute_attention_seconds()` call; do not persist across sessions yet.
+- Document a future enhancement idea for persistent caching (e.g., hashed viewpoints) but defer implementation until after baseline performance goals are met.
 
 **If Implemented - Tests to Create:**
 - `test_cache_hit_identical_samples()` - exact same position/direction reuses result
@@ -427,20 +438,12 @@ Defer this optimization until after the basic implementation is complete. Profil
 - `test_cache_miss_different_direction()` - direction change invalidates cache
 - `test_cache_accuracy_vs_full_computation()` - verify cached results match full computation within tolerance
 
-**Tests to Create:**
-- `tests/test_tracking_performance.py`:
-  - `test_performance_long_session()` - 300 samples (5 min session)
-  - `test_performance_many_aois()` - 50+ areas of interest
-  - `test_performance_complex_aoi_contours()` - AOIs with many vertices
-  - Benchmark: target <1s for 300 samples × 20 AOIs
-
 **Validation:**
-- Performance acceptable for expected use cases
-- No regression in accuracy from optimizations
+- Performance benefits are realized without risking stale data between sessions.
 
 ---
 
-### Step 6.3: Memory Efficiency
+### Step 6.4: Memory Efficiency
 **Implementation:**
 - Ensure intermediate results are not retained unnecessarily
 - Use generators where appropriate for large datasets
@@ -454,21 +457,6 @@ Defer this optimization until after the basic implementation is complete. Profil
 **Validation:**
 - Memory usage is bounded
 - Large sessions don't cause OOM
-
----
-
-### Step 6.4: Instrumentation & Regression Guardrails (**NEW**)
-**Implementation:**
-- Add lightweight profiling hooks (timing + sample counters) inside `compute_eyeballs()` gated by a debug flag.
-- Extend `profile_workload.py` to compare new tracking runs against a golden baseline (Runtime + accuracy on canned fixture) and emit alerts when drift exceeds thresholds.
-- Capture peak memory and cache-hit ratios during performance tests and persist them under `examples/output/profile_runs.csv` for trend tracking.
-
-**Tests/Automation:**
-- `tests/test_tracking_performance.py::test_profile_hook_smoke()` ensures the instrumentation flag does not alter results.
-- CI workflow step to run `python profile_workload.py --scenario tracking_baseline` weekly (documented in README).
-
-**Validation:**
-- Performance regressions are caught early, and instrumentation can be toggled without code changes.
 
 ---
 
@@ -493,13 +481,13 @@ Defer this optimization until after the basic implementation is complete. Profil
 
 ### Step 7.2: Example Scripts
 **Implementation:**
-- `examples/eyeball_tracking_basic.py` - minimal example
-- `examples/eyeball_tracking_visualization.py` - with heatmap output
-- `examples/eyeball_tracking_analysis.py` - with result analysis
+- `examples/attention_tracking_basic.py` - minimal example
+- `examples/attention_tracking_visualization.py` - with heatmap output
+- `examples/attention_tracking_analysis.py` - with result analysis
 - `examples/simulated_store_session.py` - generate and analyze synthetic data
 
 **Content for each example:**
-1. **Basic**: Load AOIs, simulate viewer samples, compute eyeballs, print results
+1. **Basic**: Load AOIs, simulate viewer samples, compute attention seconds, print results
 2. **Visualization**: Add heatmap overlay, save annotated image
 3. **Analysis**: Export to DataFrame, compute statistics, identify top AOIs
 4. **Simulation**: Generate realistic viewer trajectory, analyze attention patterns
@@ -533,7 +521,7 @@ Defer this optimization until after the basic implementation is complete. Profil
 
 ---
 
-### Step 8.3: Operational Notes & Dev Ergonomics (**NEW**)
+### Step 8.3: Operational Notes & Dev Ergonomics 
 **Implementation:**
 - Document the `uv`-based virtual environment workflow (create, sync, run mypy) directly in README and `docs/IMPLEMENTATION_PLAN.md` so new contributors follow the same tooling.
 - Provide a `make tracking-check` (or `uv run`) recipe that chains: mypy → targeted pytest suites → profile smoke test.
@@ -575,9 +563,9 @@ tests/
         test_tracking_visualize.py  # Visualization tests
         
 examples/
-    eyeball_tracking_basic.py          # Minimal usage example
-    eyeball_tracking_visualization.py  # Heatmap visualization
-    eyeball_tracking_analysis.py       # Result analysis
+  attention_tracking_basic.py          # Minimal usage example
+  attention_tracking_visualization.py  # Heatmap visualization
+  attention_tracking_analysis.py       # Result analysis
     simulated_store_session.py         # Synthetic data simulation
 ```
 
@@ -587,8 +575,8 @@ examples/
 
 ```
 view_arc/
-    __init__.py      # Export new functions: compute_eyeballs, AOI, TrackingResult
-    api.py           # Add compute_eyeballs() re-export (optional)
+  __init__.py      # Export new functions: compute_attention_seconds, AOI, TrackingResult
+  api.py           # Add compute_attention_seconds() re-export (optional)
     visualize.py     # Add heatmap, timeline, replay functions
     
 README.md            # Add tracking feature documentation
@@ -600,7 +588,7 @@ README.md            # Add tracking feature documentation
 
 ### Primary Function
 ```python
-from view_arc import compute_eyeballs, AOI, ViewerSample
+from view_arc import compute_attention_seconds, AOI, ViewerSample
 
 # Define areas of interest
 aois = [
@@ -616,8 +604,8 @@ samples = [
     # ... more samples
 ]
 
-# Compute eyeballs
-result = compute_eyeballs(
+# Compute attention seconds
+result = compute_attention_seconds(
     samples=samples,
     aois=aois,
     fov_deg=90.0,
@@ -638,7 +626,7 @@ print(result.coverage_ratio)  # e.g., 1.0 (100% of time looking at some AOI)
 positions = np.array([[150, 300], [150, 300], [350, 300]])
 directions = np.array([[0.0, -1.0], [0.0, -1.0], [0.0, -1.0]])
 
-result = compute_eyeballs(
+result = compute_attention_seconds(
     samples=(positions, directions),  # tuple of arrays
     aois=aois,
 )
@@ -650,7 +638,7 @@ data = np.array([
     [350, 300, 0.0, -1.0],
 ])
 
-result = compute_eyeballs(samples=data, aois=aois)
+result = compute_attention_seconds(samples=data, aois=aois)
 ```
 
 ### Visualization
@@ -669,7 +657,7 @@ annotated_image = draw_attention_heatmap(
 
 ## Success Criteria
 
-- [ ] `compute_eyeballs()` correctly accumulates hits per AOI
+- [ ] `compute_attention_seconds()` correctly accumulates hits per AOI
 - [ ] All AOI IDs correctly mapped through the pipeline
 - [ ] Results match manual iteration over `find_largest_obstacle()`
 - [ ] Performance <1s for typical sessions (300 samples, 20 AOIs)

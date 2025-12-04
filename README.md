@@ -65,11 +65,11 @@ Run every example with ``uv run python <script>`` so that dependencies resolve i
 
 ## Tracking Assumptions
 
-Temporal eyeball tracking (see `docs/TRACKING_PLAN.md`) relies on two upstream guarantees that we do **not** re-validate at runtime:
+Temporal attention tracking (see `docs/TRACKING_PLAN.md`) relies on two upstream guarantees that we do **not** re-validate at runtime:
 - Viewer samples arrive exactly at 1 Hz, so each accepted hit represents one second of attention.
 - Viewer positions, directions, and AOI contours all share the same immutable image-coordinate space for the entire batch.
 
-Any pipeline feeding `compute_eyeballs()` must uphold these invariants to keep the reported metrics meaningful.
+Any pipeline feeding `compute_attention_seconds()` must uphold these invariants to keep the reported metrics meaningful.
 
 ## Type Checking
 
