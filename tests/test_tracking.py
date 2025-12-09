@@ -1385,6 +1385,36 @@ class TestSessionConfigValidation:
         with pytest.raises(ValidationError, match="height must be positive"):
             SessionConfig(session_id="test", frame_size=(1920, -1080))
 
+    def test_session_config_rejects_nan_width(self) -> None:
+        """Test that NaN width is rejected with ValidationError."""
+        with pytest.raises(ValidationError, match="width must be finite"):
+            SessionConfig(session_id="test", frame_size=(float("nan"), 1080))  # type: ignore[arg-type]
+
+    def test_session_config_rejects_nan_height(self) -> None:
+        """Test that NaN height is rejected with ValidationError."""
+        with pytest.raises(ValidationError, match="height must be finite"):
+            SessionConfig(session_id="test", frame_size=(1920, float("nan")))  # type: ignore[arg-type]
+
+    def test_session_config_rejects_inf_width(self) -> None:
+        """Test that infinite width is rejected with ValidationError."""
+        with pytest.raises(ValidationError, match="width must be finite"):
+            SessionConfig(session_id="test", frame_size=(float("inf"), 1080))  # type: ignore[arg-type]
+
+    def test_session_config_rejects_inf_height(self) -> None:
+        """Test that infinite height is rejected with ValidationError."""
+        with pytest.raises(ValidationError, match="height must be finite"):
+            SessionConfig(session_id="test", frame_size=(1920, float("inf")))  # type: ignore[arg-type]
+
+    def test_session_config_rejects_negative_inf_width(self) -> None:
+        """Test that negative infinite width is rejected with ValidationError."""
+        with pytest.raises(ValidationError, match="width must be finite"):
+            SessionConfig(session_id="test", frame_size=(float("-inf"), 1080))  # type: ignore[arg-type]
+
+    def test_session_config_rejects_negative_inf_height(self) -> None:
+        """Test that negative infinite height is rejected with ValidationError."""
+        with pytest.raises(ValidationError, match="height must be finite"):
+            SessionConfig(session_id="test", frame_size=(1920, float("-inf")))  # type: ignore[arg-type]
+
     def test_session_config_rejects_zero_sample_interval(self) -> None:
         """Test that zero sample_interval_seconds is rejected."""
         with pytest.raises(ValidationError, match="sample_interval_seconds must be positive"):
@@ -1425,23 +1455,36 @@ class TestSessionConfigAcceptsValidTypes:
         assert config.frame_size == (1920, 1080)
 
     def test_session_config_accepts_whole_number_float_frame_size(self) -> None:
-        """Test that whole-number floats are accepted for frame_size."""
+        """Test that whole-number floats are accepted and normalized to ints."""
         config = SessionConfig(session_id="test", frame_size=(1920.0, 1080.0))  # type: ignore[arg-type]
-        assert config.frame_size == (1920.0, 1080.0)
+        # Should be normalized to tuple of ints
+        assert config.frame_size == (1920, 1080)
+        assert isinstance(config.frame_size[0], int) # type: ignore
+        assert isinstance(config.frame_size[1], int) # type: ignore
 
     def test_session_config_accepts_numpy_int_frame_size(self) -> None:
-        """Test that numpy integers are accepted for frame_size."""
+        """Test that numpy integers are accepted and normalized to Python ints."""
         config = SessionConfig(
             session_id="test",
             frame_size=(np.int32(1920), np.int64(1080)),  # type: ignore[arg-type]
         )
         assert config.width == 1920
         assert config.height == 1080
+        # Should be normalized to Python ints in a tuple
+        assert isinstance(config.frame_size, tuple)
+        assert isinstance(config.frame_size[0], int)
+        assert isinstance(config.frame_size[1], int)
 
     def test_session_config_accepts_list_frame_size(self) -> None:
-        """Test that list frame_size is accepted."""
-        config = SessionConfig(session_id="test", frame_size=[1920, 1080])  # type: ignore[arg-type]
-        assert config.frame_size == [1920, 1080]
+        """Test that list frame_size is accepted and normalized to tuple."""
+        original_list = [1920, 1080]
+        config = SessionConfig(session_id="test", frame_size=original_list)  # type: ignore[arg-type]
+        # Should be normalized to a tuple, not the original list reference
+        assert config.frame_size == (1920, 1080)
+        assert isinstance(config.frame_size, tuple)
+        # Mutating the original list should not affect the config
+        original_list[0] = 9999
+        assert config.frame_size == (1920, 1080)
 
     def test_session_config_accepts_float_sample_interval(self) -> None:
         """Test that float sample_interval is accepted."""

@@ -379,8 +379,15 @@ class SessionConfig:
     notes: dict[str, Any] | None = None
 
     def __post_init__(self) -> None:
-        """Validate session configuration fields."""
-        _validate_session_config(self)
+        """Validate and normalize session configuration fields.
+
+        Normalizes frame_size to an immutable tuple of ints to ensure
+        the "immutable acquisition metadata" contract is upheld.
+        """
+        normalized_frame_size = _validate_session_config(self)
+        # Use object.__setattr__ because the dataclass is frozen
+        if normalized_frame_size is not None:
+            object.__setattr__(self, "frame_size", normalized_frame_size)
 
     @property
     def has_frame_bounds(self) -> bool:
@@ -398,11 +405,15 @@ class SessionConfig:
         return self.frame_size[1] if self.frame_size else None
 
 
-def _validate_session_config(config: SessionConfig) -> None:
-    """Validate a SessionConfig instance.
+def _validate_session_config(config: SessionConfig) -> tuple[int, int] | None:
+    """Validate a SessionConfig instance and return normalized frame_size.
 
     Args:
         config: The SessionConfig to validate
+
+    Returns:
+        Normalized frame_size as tuple of ints, or None if not provided.
+        This ensures immutability of the frame_size field.
 
     Raises:
         ValidationError: If any field is invalid
@@ -415,7 +426,8 @@ def _validate_session_config(config: SessionConfig) -> None:
     if not config.session_id:
         raise ValidationError("session_id cannot be empty")
 
-    # Validate frame_size if provided
+    # Validate frame_size if provided and normalize to immutable tuple
+    normalized_frame_size: tuple[int, int] | None = None
     if config.frame_size is not None:
         if not isinstance(config.frame_size, (tuple, list)):
             raise ValidationError(
@@ -430,35 +442,54 @@ def _validate_session_config(config: SessionConfig) -> None:
 
         width, height = config.frame_size
 
-        # Validate width
+        # Validate width - check for numeric type first
+        if not isinstance(width, Real):
+            raise ValidationError(
+                f"frame_size width must be a number, got {type(width).__name__}"
+            )
+        width_float = float(width)
+        # Check for non-finite values before attempting int conversion
+        if not math.isfinite(width_float):
+            raise ValidationError(
+                f"frame_size width must be finite, got {width}"
+            )
+        # Check if it's a whole number (int or whole-number float)
         if not isinstance(width, (int, np.integer)):
-            # Also accept float if it's a whole number
-            if isinstance(width, Real) and float(width) == int(float(width)):
-                pass  # Accept whole-number floats
-            else:
+            if width_float != int(width_float):
                 raise ValidationError(
                     f"frame_size width must be an integer, got {type(width).__name__}"
                 )
-        width_int = int(width)
+        width_int = int(width_float)
         if width_int <= 0:
             raise ValidationError(
                 f"frame_size width must be positive, got {width}"
             )
 
-        # Validate height
+        # Validate height - check for numeric type first
+        if not isinstance(height, Real):
+            raise ValidationError(
+                f"frame_size height must be a number, got {type(height).__name__}"
+            )
+        height_float = float(height)
+        # Check for non-finite values before attempting int conversion
+        if not math.isfinite(height_float):
+            raise ValidationError(
+                f"frame_size height must be finite, got {height}"
+            )
+        # Check if it's a whole number (int or whole-number float)
         if not isinstance(height, (int, np.integer)):
-            # Also accept float if it's a whole number
-            if isinstance(height, Real) and float(height) == int(float(height)):
-                pass  # Accept whole-number floats
-            else:
+            if height_float != int(height_float):
                 raise ValidationError(
                     f"frame_size height must be an integer, got {type(height).__name__}"
                 )
-        height_int = int(height)
+        height_int = int(height_float)
         if height_int <= 0:
             raise ValidationError(
                 f"frame_size height must be positive, got {height}"
             )
+
+        # Normalize to immutable tuple of ints
+        normalized_frame_size = (width_int, height_int)
 
     # Validate coordinate_space (should only be "image")
     if config.coordinate_space != "image":
@@ -493,6 +524,8 @@ def _validate_session_config(config: SessionConfig) -> None:
         raise ValidationError(
             f"notes must be a dict or None, got {type(config.notes).__name__}"
         )
+
+    return normalized_frame_size
 
 
 # =============================================================================
