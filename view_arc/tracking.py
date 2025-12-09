@@ -19,8 +19,10 @@ Assumptions:
 
 from __future__ import annotations
 
+import math
 from collections.abc import Mapping
 from dataclasses import dataclass, field
+from numbers import Real
 from typing import Any
 
 import numpy as np
@@ -335,9 +337,72 @@ class TrackingResult:
 # =============================================================================
 
 
+def _validate_frame_size(
+    frame_size: tuple[float, float]
+) -> tuple[float, float]:
+    """Validate frame_size is a 2-tuple of finite positive numbers.
+
+    Args:
+        frame_size: Expected to be (width, height) tuple.
+            Accepts int, float, or numpy scalar types.
+
+    Returns:
+        Validated (width, height) as floats.
+
+    Raises:
+        ValidationError: If frame_size is malformed.
+    """
+    # Check it's a tuple or list with exactly 2 elements
+    if not isinstance(frame_size, (tuple, list)):
+        raise ValidationError(
+            f"frame_size must be a tuple of (width, height), "
+            f"got {type(frame_size).__name__}"
+        )
+
+    if len(frame_size) != 2:
+        raise ValidationError(
+            f"frame_size must have exactly 2 elements (width, height), "
+            f"got {len(frame_size)} elements"
+        )
+
+    width, height = frame_size
+
+    # Check width is a finite positive number
+    if not isinstance(width, Real):
+        raise ValidationError(
+            f"frame_size width must be a number, got {type(width).__name__}"
+        )
+    width_float = float(width)
+    if not math.isfinite(width_float):
+        raise ValidationError(
+            f"frame_size width must be finite, got {width}"
+        )
+    if width_float <= 0:
+        raise ValidationError(
+            f"frame_size width must be positive, got {width}"
+        )
+
+    # Check height is a finite positive number
+    if not isinstance(height, Real):
+        raise ValidationError(
+            f"frame_size height must be a number, got {type(height).__name__}"
+        )
+    height_float = float(height)
+    if not math.isfinite(height_float):
+        raise ValidationError(
+            f"frame_size height must be finite, got {height}"
+        )
+    if height_float <= 0:
+        raise ValidationError(
+            f"frame_size height must be positive, got {height}"
+        )
+
+    return width_float, height_float
+
+
 def validate_viewer_samples(
     samples: list[ViewerSample],
-    frame_size: tuple[int, int] | None = None,
+    frame_size: tuple[float, float] | None = None,
 ) -> None:
     """Validate a list of ViewerSample objects.
 
@@ -348,16 +413,24 @@ def validate_viewer_samples(
         samples: List of ViewerSample objects to validate
         frame_size: Optional (width, height) tuple for bounds checking.
             If provided, positions must be within [0, width) x [0, height).
+            Must be a 2-tuple of finite positive numbers.
+            Accepts int, float, or numpy scalar types at runtime.
 
     Raises:
         ValidationError: If samples is not a list
         ValidationError: If any sample is not a ViewerSample instance
+        ValidationError: If frame_size is malformed (not a 2-tuple of finite positive numbers)
         ValidationError: If any position is out of bounds (when frame_size provided)
     """
     if not isinstance(samples, list):
         raise ValidationError(
             f"samples must be a list, got {type(samples).__name__}"
         )
+
+    # Validate frame_size upfront if provided
+    validated_frame_size: tuple[float, float] | None = None
+    if frame_size is not None:
+        validated_frame_size = _validate_frame_size(frame_size)
 
     for i, sample in enumerate(samples):
         if not isinstance(sample, ViewerSample):
@@ -367,8 +440,8 @@ def validate_viewer_samples(
             )
 
         # Position bounds checking when frame_size is provided
-        if frame_size is not None:
-            width, height = frame_size
+        if validated_frame_size is not None:
+            width, height = validated_frame_size
             x, y = sample.position
 
             if not (0 <= x < width):
@@ -429,44 +502,62 @@ def validate_tracking_params(
 ) -> None:
     """Validate tracking parameters.
 
-    Checks that FOV, max_range, and sample_interval are valid values.
+    Checks that FOV, max_range, and sample_interval are valid finite values.
 
     Args:
-        fov_deg: Field of view in degrees. Must be in (0, 360].
-        max_range: Maximum detection range in pixels. Must be positive.
-        sample_interval: Time interval between samples in seconds. Must be positive.
+        fov_deg: Field of view in degrees. Must be a finite number in (0, 360].
+            Accepts int, float, or numpy scalar types at runtime.
+        max_range: Maximum detection range in pixels. Must be a finite positive number.
+            Accepts int, float, or numpy scalar types at runtime.
+        sample_interval: Time interval between samples in seconds. Must be a finite positive number.
+            Accepts int, float, or numpy scalar types at runtime.
 
     Raises:
-        ValidationError: If fov_deg is not in (0, 360]
-        ValidationError: If max_range is not positive
-        ValidationError: If sample_interval is not positive
+        ValidationError: If fov_deg is not a finite number in (0, 360]
+        ValidationError: If max_range is not a finite positive number
+        ValidationError: If sample_interval is not a finite positive number
     """
     # Validate fov_deg
-    if not isinstance(fov_deg, (int, float)):
+    if not isinstance(fov_deg, Real):
         raise ValidationError(
             f"fov_deg must be a number, got {type(fov_deg).__name__}"
         )
-    if not (0 < fov_deg <= 360):
+    fov_deg_float = float(fov_deg)
+    if not math.isfinite(fov_deg_float):
+        raise ValidationError(
+            f"fov_deg must be finite, got {fov_deg}"
+        )
+    if not (0 < fov_deg_float <= 360):
         raise ValidationError(
             f"fov_deg must be in range (0, 360], got {fov_deg}"
         )
 
     # Validate max_range
-    if not isinstance(max_range, (int, float)):
+    if not isinstance(max_range, Real):
         raise ValidationError(
             f"max_range must be a number, got {type(max_range).__name__}"
         )
-    if max_range <= 0:
+    max_range_float = float(max_range)
+    if not math.isfinite(max_range_float):
+        raise ValidationError(
+            f"max_range must be finite, got {max_range}"
+        )
+    if max_range_float <= 0:
         raise ValidationError(
             f"max_range must be positive, got {max_range}"
         )
 
     # Validate sample_interval
-    if not isinstance(sample_interval, (int, float)):
+    if not isinstance(sample_interval, Real):
         raise ValidationError(
             f"sample_interval must be a number, got {type(sample_interval).__name__}"
         )
-    if sample_interval <= 0:
+    sample_interval_float = float(sample_interval)
+    if not math.isfinite(sample_interval_float):
+        raise ValidationError(
+            f"sample_interval must be finite, got {sample_interval}"
+        )
+    if sample_interval_float <= 0:
         raise ValidationError(
             f"sample_interval must be positive, got {sample_interval}"
         )

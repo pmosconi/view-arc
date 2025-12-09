@@ -981,3 +981,233 @@ class TestValidateTrackingParamsSampleIntervalInvalid:
                 max_range=100.0,
                 sample_interval="one",  # type: ignore[arg-type]
             )
+
+
+# =============================================================================
+# Tests: validate_viewer_samples frame_size validation (Step 1.2 Review)
+# =============================================================================
+
+
+class TestValidateViewerSamplesFrameSizeInvalid:
+    """Tests for validate_viewer_samples with malformed frame_size."""
+
+    def test_validate_samples_frame_size_not_tuple(self) -> None:
+        """Test rejection when frame_size is not a tuple/list."""
+        sample = ViewerSample(position=(100.0, 200.0), direction=(1.0, 0.0))
+        with pytest.raises(ValidationError, match="frame_size must be a tuple"):
+            validate_viewer_samples([sample], frame_size="1920x1080")  # type: ignore[arg-type]
+
+    def test_validate_samples_frame_size_single_element(self) -> None:
+        """Test rejection when frame_size has only one element."""
+        sample = ViewerSample(position=(100.0, 200.0), direction=(1.0, 0.0))
+        with pytest.raises(ValidationError, match="exactly 2 elements"):
+            validate_viewer_samples([sample], frame_size=(1920,))  # type: ignore[arg-type]
+
+    def test_validate_samples_frame_size_three_elements(self) -> None:
+        """Test rejection when frame_size has three elements."""
+        sample = ViewerSample(position=(100.0, 200.0), direction=(1.0, 0.0))
+        with pytest.raises(ValidationError, match="exactly 2 elements"):
+            validate_viewer_samples([sample], frame_size=(1920, 1080, 3))  # type: ignore[arg-type]
+
+    def test_validate_samples_frame_size_string_width(self) -> None:
+        """Test rejection when frame_size width is a string."""
+        sample = ViewerSample(position=(100.0, 200.0), direction=(1.0, 0.0))
+        with pytest.raises(ValidationError, match="width must be a number"):
+            validate_viewer_samples([sample], frame_size=("1920", 1080))  # type: ignore[arg-type]
+
+    def test_validate_samples_frame_size_string_height(self) -> None:
+        """Test rejection when frame_size height is a string."""
+        sample = ViewerSample(position=(100.0, 200.0), direction=(1.0, 0.0))
+        with pytest.raises(ValidationError, match="height must be a number"):
+            validate_viewer_samples([sample], frame_size=(1920, "1080"))  # type: ignore[arg-type]
+
+    def test_validate_samples_frame_size_zero_width(self) -> None:
+        """Test rejection when frame_size width is zero."""
+        sample = ViewerSample(position=(100.0, 200.0), direction=(1.0, 0.0))
+        with pytest.raises(ValidationError, match="width must be positive"):
+            validate_viewer_samples([sample], frame_size=(0, 1080))
+
+    def test_validate_samples_frame_size_zero_height(self) -> None:
+        """Test rejection when frame_size height is zero."""
+        sample = ViewerSample(position=(100.0, 200.0), direction=(1.0, 0.0))
+        with pytest.raises(ValidationError, match="height must be positive"):
+            validate_viewer_samples([sample], frame_size=(1920, 0))
+
+    def test_validate_samples_frame_size_negative_width(self) -> None:
+        """Test rejection when frame_size width is negative."""
+        sample = ViewerSample(position=(100.0, 200.0), direction=(1.0, 0.0))
+        with pytest.raises(ValidationError, match="width must be positive"):
+            validate_viewer_samples([sample], frame_size=(-1920, 1080))
+
+    def test_validate_samples_frame_size_negative_height(self) -> None:
+        """Test rejection when frame_size height is negative."""
+        sample = ViewerSample(position=(100.0, 200.0), direction=(1.0, 0.0))
+        with pytest.raises(ValidationError, match="height must be positive"):
+            validate_viewer_samples([sample], frame_size=(1920, -1080))
+
+    def test_validate_samples_frame_size_nan_width(self) -> None:
+        """Test rejection when frame_size width is NaN."""
+        sample = ViewerSample(position=(100.0, 200.0), direction=(1.0, 0.0))
+        with pytest.raises(ValidationError, match="width must be finite"):
+            validate_viewer_samples([sample], frame_size=(float("nan"), 1080.0))
+
+    def test_validate_samples_frame_size_nan_height(self) -> None:
+        """Test rejection when frame_size height is NaN."""
+        sample = ViewerSample(position=(100.0, 200.0), direction=(1.0, 0.0))
+        with pytest.raises(ValidationError, match="height must be finite"):
+            validate_viewer_samples([sample], frame_size=(1920.0, float("nan")))
+
+    def test_validate_samples_frame_size_inf_width(self) -> None:
+        """Test rejection when frame_size width is infinity."""
+        sample = ViewerSample(position=(100.0, 200.0), direction=(1.0, 0.0))
+        with pytest.raises(ValidationError, match="width must be finite"):
+            validate_viewer_samples([sample], frame_size=(float("inf"), 1080.0))
+
+    def test_validate_samples_frame_size_inf_height(self) -> None:
+        """Test rejection when frame_size height is infinity."""
+        sample = ViewerSample(position=(100.0, 200.0), direction=(1.0, 0.0))
+        with pytest.raises(ValidationError, match="height must be finite"):
+            validate_viewer_samples([sample], frame_size=(1920.0, float("inf")))
+
+    def test_validate_samples_frame_size_negative_inf_width(self) -> None:
+        """Test rejection when frame_size width is negative infinity."""
+        sample = ViewerSample(position=(100.0, 200.0), direction=(1.0, 0.0))
+        with pytest.raises(ValidationError, match="width must be finite"):
+            validate_viewer_samples([sample], frame_size=(float("-inf"), 1080.0))
+
+    def test_validate_samples_frame_size_list_accepted(self) -> None:
+        """Test that frame_size as list is accepted."""
+        sample = ViewerSample(position=(100.0, 200.0), direction=(1.0, 0.0))
+        validate_viewer_samples([sample], frame_size=[1920, 1080])  # type: ignore[arg-type]
+
+
+# =============================================================================
+# Tests: validate_tracking_params non-finite rejection (Step 1.2 Review)
+# =============================================================================
+
+
+class TestValidateTrackingParamsNonFinite:
+    """Tests for validate_tracking_params rejection of NaN and infinity."""
+
+    def test_validate_params_fov_nan(self) -> None:
+        """Test rejection of NaN FOV."""
+        with pytest.raises(ValidationError, match="fov_deg must be finite"):
+            validate_tracking_params(fov_deg=float("nan"), max_range=100.0)
+
+    def test_validate_params_fov_inf(self) -> None:
+        """Test rejection of infinite FOV."""
+        with pytest.raises(ValidationError, match="fov_deg must be finite"):
+            validate_tracking_params(fov_deg=float("inf"), max_range=100.0)
+
+    def test_validate_params_fov_negative_inf(self) -> None:
+        """Test rejection of negative infinite FOV."""
+        with pytest.raises(ValidationError, match="fov_deg must be finite"):
+            validate_tracking_params(fov_deg=float("-inf"), max_range=100.0)
+
+    def test_validate_params_max_range_nan(self) -> None:
+        """Test rejection of NaN max_range."""
+        with pytest.raises(ValidationError, match="max_range must be finite"):
+            validate_tracking_params(fov_deg=90.0, max_range=float("nan"))
+
+    def test_validate_params_max_range_inf(self) -> None:
+        """Test rejection of infinite max_range."""
+        with pytest.raises(ValidationError, match="max_range must be finite"):
+            validate_tracking_params(fov_deg=90.0, max_range=float("inf"))
+
+    def test_validate_params_max_range_negative_inf(self) -> None:
+        """Test rejection of negative infinite max_range."""
+        with pytest.raises(ValidationError, match="max_range must be finite"):
+            validate_tracking_params(fov_deg=90.0, max_range=float("-inf"))
+
+    def test_validate_params_sample_interval_nan(self) -> None:
+        """Test rejection of NaN sample_interval."""
+        with pytest.raises(ValidationError, match="sample_interval must be finite"):
+            validate_tracking_params(fov_deg=90.0, max_range=100.0, sample_interval=float("nan"))
+
+    def test_validate_params_sample_interval_inf(self) -> None:
+        """Test rejection of infinite sample_interval."""
+        with pytest.raises(ValidationError, match="sample_interval must be finite"):
+            validate_tracking_params(fov_deg=90.0, max_range=100.0, sample_interval=float("inf"))
+
+    def test_validate_params_sample_interval_negative_inf(self) -> None:
+        """Test rejection of negative infinite sample_interval."""
+        with pytest.raises(ValidationError, match="sample_interval must be finite"):
+            validate_tracking_params(fov_deg=90.0, max_range=100.0, sample_interval=float("-inf"))
+
+
+# =============================================================================
+# Tests: validate_tracking_params numpy scalar acceptance (Step 1.2 Review)
+# =============================================================================
+
+
+class TestValidateTrackingParamsNumpyScalars:
+    """Tests for validate_tracking_params acceptance of numpy scalar types."""
+
+    def test_validate_params_numpy_float32(self) -> None:
+        """Test that numpy float32 values are accepted."""
+        validate_tracking_params(
+            fov_deg=np.float32(90.0),  # type: ignore[arg-type]
+            max_range=np.float32(500.0),  # type: ignore[arg-type]
+            sample_interval=np.float32(1.0),  # type: ignore[arg-type]
+        )  # Should not raise
+
+    def test_validate_params_numpy_float64(self) -> None:
+        """Test that numpy float64 values are accepted."""
+        validate_tracking_params(
+            fov_deg=np.float64(90.0),  # type: ignore[arg-type]
+            max_range=np.float64(500.0),  # type: ignore[arg-type]
+            sample_interval=np.float64(1.0),  # type: ignore[arg-type]
+        )  # Should not raise
+
+    def test_validate_params_numpy_int32(self) -> None:
+        """Test that numpy int32 values are accepted."""
+        validate_tracking_params(
+            fov_deg=np.int32(90),  # type: ignore[arg-type]
+            max_range=np.int32(500),  # type: ignore[arg-type]
+            sample_interval=np.int32(1),  # type: ignore[arg-type]
+        )  # Should not raise
+
+    def test_validate_params_numpy_int64(self) -> None:
+        """Test that numpy int64 values are accepted."""
+        validate_tracking_params(
+            fov_deg=np.int64(90),  # type: ignore[arg-type]
+            max_range=np.int64(500),  # type: ignore[arg-type]
+            sample_interval=np.int64(1),  # type: ignore[arg-type]
+        )  # Should not raise
+
+    def test_validate_params_numpy_array_element(self) -> None:
+        """Test that values extracted from numpy arrays are accepted."""
+        config = np.array([90.0, 500.0, 1.0])
+        validate_tracking_params(
+            fov_deg=config[0],  # type: ignore[arg-type]
+            max_range=config[1],  # type: ignore[arg-type]
+            sample_interval=config[2],  # type: ignore[arg-type]
+        )  # Should not raise
+
+    def test_validate_params_mixed_numpy_and_python(self) -> None:
+        """Test that mixing numpy and Python types works."""
+        validate_tracking_params(
+            fov_deg=np.float64(90.0),  # type: ignore[arg-type]
+            max_range=500,  # Python int
+            sample_interval=1.0,  # Python float
+        )  # Should not raise
+
+
+class TestValidateViewerSamplesFrameSizeNumpyScalars:
+    """Tests for validate_viewer_samples frame_size with numpy scalar types."""
+
+    def test_validate_samples_frame_size_numpy_int32(self) -> None:
+        """Test that numpy int32 frame_size values are accepted."""
+        sample = ViewerSample(position=(100.0, 200.0), direction=(1.0, 0.0))
+        validate_viewer_samples(
+            [sample],
+            frame_size=(np.int32(1920), np.int32(1080)),  # type: ignore[arg-type]
+        )  # Should not raise
+
+    def test_validate_samples_frame_size_numpy_float64(self) -> None:
+        """Test that numpy float64 frame_size values are accepted."""
+        sample = ViewerSample(position=(100.0, 200.0), direction=(1.0, 0.0))
+        validate_viewer_samples(
+            [sample],
+            frame_size=(np.float64(1920.0), np.float64(1080.0)),  # type: ignore[arg-type]
+        )  # Should not raise
