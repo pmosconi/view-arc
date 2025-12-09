@@ -71,7 +71,7 @@ class TrackingResult:
 ```
 
 **Tests to Create:**
-- `tests/test_tracking.py`:
+- `tests/test_tracking_dataclasses.py`:
   - `test_viewer_sample_creation()` - valid sample construction
   - `test_viewer_sample_invalid_direction()` - non-unit vector rejected
   - `test_aoi_creation()` - valid AOI with ID and contour
@@ -91,7 +91,7 @@ class TrackingResult:
 - `validate_tracking_params()` - validate FOV, max_range parameters
 
 **Tests to Create:**
-- `tests/test_tracking.py` (continued):
+- `tests/test_tracking_validation.py`:
   - `test_validate_samples_empty()` - handle empty input gracefully
   - `test_validate_samples_single()` - single sample valid
   - `test_validate_samples_batch()` - typical batch (60+ samples)
@@ -115,7 +115,7 @@ class TrackingResult:
   - `sample_interval_seconds: float = 1.0` (record the upstream cadence without re-validating it)
   - `viewer_id: str | None` (in case the batch needs cross-referencing upstream)
   - `notes: dict[str, Any] | None` for downstream analytics
-**Tests to Create (extend `tests/test_tracking.py`):**
+**Tests to Create (in `tests/test_tracking_session_config.py`):**
 - `test_session_config_defaults_applied()`
 - `test_session_config_allows_custom_viewer_metadata()`
 - `test_validate_samples_respects_frame_size()` (moved from Step 1.2 rationale).
@@ -137,7 +137,7 @@ class TrackingResult:
   - Optionally returns detailed result for debugging
 
 **Tests to Create:**
-- `tests/test_tracking.py` (continued):
+- `tests/test_tracking_algorithm.py`:
   - `test_process_single_sample_one_aoi_visible()` - single AOI in view
   - `test_process_single_sample_multiple_aoi()` - returns winner
   - `test_process_single_sample_no_aoi_visible()` - returns None
@@ -172,7 +172,7 @@ def compute_attention_seconds(
 ```
 
 **Tests to Create:**
-- `tests/test_tracking.py` (continued):
+- `tests/test_tracking_algorithm.py` (continued):
   - `test_compute_attention_single_sample()` - trivial case
   - `test_compute_attention_all_same_aoi()` - viewer stares at one AOI
   - `test_compute_attention_alternating_aois()` - viewer looks left/right
@@ -199,7 +199,7 @@ def compute_attention_seconds(
 - `normalize_sample_input()` - convert any format to internal representation
 
 **Tests to Create:**
-- `tests/test_tracking.py` (continued):
+- `tests/test_tracking_algorithm.py` (continued):
   - `test_input_format_sample_list()` - list of ViewerSample
   - `test_input_format_tuple_arrays()` - (positions, directions) tuple
   - `test_input_format_single_array()` - shape (N, 4) array
@@ -543,14 +543,17 @@ When consecutive samples have nearly identical viewer position and view directio
 
 | Test File | Test Count | Description |
 |-----------|------------|-------------|
-| `tests/test_tracking.py` | ~25 | Data structures, validation, core algorithm |
-| `tests/test_tracking_results.py` | ~15 | Result aggregation and statistics |
-| `tests/test_api_tracking.py` | ~10 | API integration and ID mapping |
-| `tests/visual/test_tracking_visualize.py` | ~10 | Visualization functions |
-| `tests/test_tracking_performance.py` | ~6 | Performance benchmarks |
-| `tests/test_tracking_integration.py` | ~8 | Realistic scenarios |
+| `tests/test_tracking_dataclasses.py` | ~50 | Data structures (ViewerSample, AOI, AOIResult, TrackingResult) - Step 1.1 |
+| `tests/test_tracking_validation.py` | ~60 | Validation functions (validate_viewer_samples, validate_aois, validate_tracking_params) - Step 1.2 |
+| `tests/test_tracking_session_config.py` | ~45 | SessionConfig validation and integration - Step 1.3 |
+| `tests/test_tracking_algorithm.py` | ~25 | Core algorithm (process_single_sample, compute_attention_seconds) - Steps 2.1-2.4 |
+| `tests/test_tracking_results.py` | ~15 | Result aggregation and statistics - Phase 3 |
+| `tests/test_api_tracking.py` | ~10 | API integration and ID mapping - Phase 4 |
+| `tests/visual/test_tracking_visualize.py` | ~10 | Visualization functions - Phase 5 |
+| `tests/test_tracking_performance.py` | ~6 | Performance benchmarks - Phase 6 |
+| `tests/test_tracking_integration.py` | ~8 | Realistic scenarios - Phase 7 |
 
-**Total: ~75 new tests**
+**Total: ~230+ tests** (Phase 1 complete: 171 tests across 3 files)
 
 ---
 
@@ -558,16 +561,19 @@ When consecutive samples have nearly identical viewer position and view directio
 
 ```
 view_arc/
-    tracking.py              # Core tracking logic and data structures
+    tracking.py                   # Core tracking logic and data structures
     
 tests/
-    test_tracking.py         # Core tracking tests
-    test_tracking_results.py # Result analysis tests
-    test_api_tracking.py     # API integration tests
-    test_tracking_performance.py  # Performance benchmarks
-    test_tracking_integration.py  # Integration scenarios
+    test_tracking_dataclasses.py  # Step 1.1: ViewerSample, AOI, AOIResult, TrackingResult tests
+    test_tracking_validation.py   # Step 1.2: Validation function tests
+    test_tracking_session_config.py # Step 1.3: SessionConfig tests
+    test_tracking_algorithm.py    # Steps 2.1-2.4: Core algorithm tests
+    test_tracking_results.py      # Phase 3: Result analysis tests
+    test_api_tracking.py          # Phase 4: API integration tests
+    test_tracking_performance.py  # Phase 6: Performance benchmarks
+    test_tracking_integration.py  # Phase 7: Integration scenarios
     visual/
-        test_tracking_visualize.py  # Visualization tests
+        test_tracking_visualize.py  # Phase 5: Visualization tests
         
 examples/
   attention_tracking_basic.py          # Minimal usage example
