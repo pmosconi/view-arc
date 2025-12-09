@@ -20,6 +20,9 @@ from view_arc.tracking import (
     TrackingResult,
     ValidationError,
     ViewerSample,
+    validate_aois,
+    validate_tracking_params,
+    validate_viewer_samples,
 )
 
 
@@ -605,3 +608,376 @@ class TestTrackingResultValidation:
             samples_no_winner=10,
         )
         assert result.coverage_ratio == 0.0
+
+
+# =============================================================================
+# Tests: validate_viewer_samples (Step 1.2)
+# =============================================================================
+
+
+class TestValidateViewerSamplesEmpty:
+    """Tests for validate_viewer_samples with empty input."""
+
+    def test_validate_samples_empty_list(self) -> None:
+        """Test that empty sample list is handled gracefully."""
+        # Empty list should be valid - graceful handling
+        validate_viewer_samples([])  # Should not raise
+
+    def test_validate_samples_empty_with_frame_size(self) -> None:
+        """Test that empty sample list is valid even with frame_size."""
+        validate_viewer_samples([], frame_size=(1920, 1080))  # Should not raise
+
+
+class TestValidateViewerSamplesSingle:
+    """Tests for validate_viewer_samples with single sample."""
+
+    def test_validate_samples_single_valid(self) -> None:
+        """Test that a single valid sample passes validation."""
+        sample = ViewerSample(
+            position=(100.0, 200.0),
+            direction=(1.0, 0.0),
+        )
+        validate_viewer_samples([sample])  # Should not raise
+
+    def test_validate_samples_single_with_timestamp(self) -> None:
+        """Test that a single sample with timestamp is valid."""
+        sample = ViewerSample(
+            position=(50.0, 75.0),
+            direction=(0.0, 1.0),
+            timestamp=0.0,
+        )
+        validate_viewer_samples([sample])  # Should not raise
+
+    def test_validate_samples_single_with_frame_size(self) -> None:
+        """Test that a single sample within bounds is valid."""
+        sample = ViewerSample(
+            position=(100.0, 200.0),
+            direction=(1.0, 0.0),
+        )
+        validate_viewer_samples([sample], frame_size=(1920, 1080))  # Should not raise
+
+
+class TestValidateViewerSamplesBatch:
+    """Tests for validate_viewer_samples with typical batch sizes."""
+
+    def test_validate_samples_batch_60(self) -> None:
+        """Test validation of 60 samples (1 minute of data)."""
+        samples = [
+            ViewerSample(
+                position=(100.0 + i, 200.0),
+                direction=make_unit_vector(i * 6),  # Rotate over time
+                timestamp=float(i),
+            )
+            for i in range(60)
+        ]
+        validate_viewer_samples(samples)  # Should not raise
+
+    def test_validate_samples_batch_large(self) -> None:
+        """Test validation of large batch (300 samples = 5 minutes)."""
+        samples = [
+            ViewerSample(
+                position=(500.0, 400.0),
+                direction=(1.0, 0.0),
+                timestamp=float(i),
+            )
+            for i in range(300)
+        ]
+        validate_viewer_samples(samples)  # Should not raise
+
+    def test_validate_samples_batch_with_frame_size(self) -> None:
+        """Test batch validation with frame bounds checking."""
+        samples = [
+            ViewerSample(
+                position=(float(i * 10), float(i * 5)),
+                direction=(1.0, 0.0),
+            )
+            for i in range(100)
+        ]
+        validate_viewer_samples(samples, frame_size=(1920, 1080))  # Should not raise
+
+
+class TestValidateViewerSamplesInvalidPosition:
+    """Tests for validate_viewer_samples with out-of-bounds positions."""
+
+    def test_validate_samples_invalid_position_x_negative(self) -> None:
+        """Test rejection of sample with negative x position."""
+        sample = ViewerSample(
+            position=(-10.0, 200.0),
+            direction=(1.0, 0.0),
+        )
+        with pytest.raises(ValidationError, match="x position.*out of bounds"):
+            validate_viewer_samples([sample], frame_size=(1920, 1080))
+
+    def test_validate_samples_invalid_position_y_negative(self) -> None:
+        """Test rejection of sample with negative y position."""
+        sample = ViewerSample(
+            position=(100.0, -50.0),
+            direction=(1.0, 0.0),
+        )
+        with pytest.raises(ValidationError, match="y position.*out of bounds"):
+            validate_viewer_samples([sample], frame_size=(1920, 1080))
+
+    def test_validate_samples_invalid_position_x_exceeds(self) -> None:
+        """Test rejection of sample with x position >= width."""
+        sample = ViewerSample(
+            position=(1920.0, 200.0),  # Exactly at width (invalid, should be < width)
+            direction=(1.0, 0.0),
+        )
+        with pytest.raises(ValidationError, match="x position.*out of bounds"):
+            validate_viewer_samples([sample], frame_size=(1920, 1080))
+
+    def test_validate_samples_invalid_position_y_exceeds(self) -> None:
+        """Test rejection of sample with y position >= height."""
+        sample = ViewerSample(
+            position=(100.0, 1080.0),  # Exactly at height (invalid)
+            direction=(1.0, 0.0),
+        )
+        with pytest.raises(ValidationError, match="y position.*out of bounds"):
+            validate_viewer_samples([sample], frame_size=(1920, 1080))
+
+    def test_validate_samples_invalid_position_in_batch(self) -> None:
+        """Test that error identifies the sample index."""
+        samples = [
+            ViewerSample(position=(100.0, 200.0), direction=(1.0, 0.0)),
+            ViewerSample(position=(500.0, 400.0), direction=(0.0, 1.0)),
+            ViewerSample(position=(2000.0, 500.0), direction=(1.0, 0.0)),  # Invalid
+        ]
+        with pytest.raises(ValidationError, match="index 2"):
+            validate_viewer_samples(samples, frame_size=(1920, 1080))
+
+    def test_validate_samples_no_bounds_check_without_frame_size(self) -> None:
+        """Test that positions are not bounds-checked when frame_size is None."""
+        # These positions would be invalid with a frame_size, but should pass without
+        sample = ViewerSample(
+            position=(-100.0, -200.0),
+            direction=(1.0, 0.0),
+        )
+        validate_viewer_samples([sample])  # Should not raise
+
+
+class TestValidateViewerSamplesInvalidType:
+    """Tests for validate_viewer_samples with invalid input types."""
+
+    def test_validate_samples_not_a_list(self) -> None:
+        """Test rejection when samples is not a list."""
+        with pytest.raises(ValidationError, match="samples must be a list"):
+            validate_viewer_samples("not a list")  # type: ignore[arg-type]
+
+    def test_validate_samples_tuple_not_list(self) -> None:
+        """Test rejection when samples is a tuple instead of list."""
+        sample = ViewerSample(position=(0.0, 0.0), direction=(1.0, 0.0))
+        with pytest.raises(ValidationError, match="samples must be a list"):
+            validate_viewer_samples((sample,))  # type: ignore[arg-type]
+
+    def test_validate_samples_contains_non_sample(self) -> None:
+        """Test rejection when list contains non-ViewerSample."""
+        samples = [
+            ViewerSample(position=(0.0, 0.0), direction=(1.0, 0.0)),
+            {"position": (100.0, 100.0), "direction": (0.0, 1.0)},  # Dict, not ViewerSample
+        ]
+        with pytest.raises(ValidationError, match="index 1.*ViewerSample"):
+            validate_viewer_samples(samples)  # type: ignore[arg-type]
+
+
+# =============================================================================
+# Tests: validate_aois (Step 1.2)
+# =============================================================================
+
+
+class TestValidateAoisEmpty:
+    """Tests for validate_aois with empty input."""
+
+    def test_validate_aois_empty_list(self) -> None:
+        """Test that empty AOI list is handled gracefully."""
+        validate_aois([])  # Should not raise
+
+
+class TestValidateAoisDuplicateIds:
+    """Tests for validate_aois with duplicate IDs."""
+
+    def test_validate_aois_duplicate_string_ids(self) -> None:
+        """Test rejection of duplicate string IDs."""
+        aois = [
+            AOI(id="shelf_1", contour=make_square_contour((100.0, 100.0))),
+            AOI(id="shelf_2", contour=make_square_contour((200.0, 100.0))),
+            AOI(id="shelf_1", contour=make_square_contour((300.0, 100.0))),  # Duplicate
+        ]
+        with pytest.raises(ValidationError, match="Duplicate AOI IDs.*shelf_1"):
+            validate_aois(aois)
+
+    def test_validate_aois_duplicate_int_ids(self) -> None:
+        """Test rejection of duplicate integer IDs."""
+        aois = [
+            AOI(id=1, contour=make_square_contour((100.0, 100.0))),
+            AOI(id=2, contour=make_square_contour((200.0, 100.0))),
+            AOI(id=1, contour=make_square_contour((300.0, 100.0))),  # Duplicate
+        ]
+        with pytest.raises(ValidationError, match="Duplicate AOI IDs.*1"):
+            validate_aois(aois)
+
+    def test_validate_aois_multiple_duplicates(self) -> None:
+        """Test that all duplicate IDs are reported."""
+        aois = [
+            AOI(id="a", contour=make_square_contour((100.0, 100.0))),
+            AOI(id="b", contour=make_square_contour((200.0, 100.0))),
+            AOI(id="a", contour=make_square_contour((300.0, 100.0))),  # Duplicate
+            AOI(id="b", contour=make_square_contour((400.0, 100.0))),  # Duplicate
+        ]
+        with pytest.raises(ValidationError, match="Duplicate AOI IDs"):
+            validate_aois(aois)
+
+
+class TestValidateAoisMixedIdTypes:
+    """Tests for validate_aois with mixed string and integer IDs."""
+
+    def test_validate_aois_mixed_id_types(self) -> None:
+        """Test that mixed string and integer IDs coexist."""
+        aois = [
+            AOI(id="shelf_1", contour=make_square_contour((100.0, 100.0))),
+            AOI(id=42, contour=make_square_contour((200.0, 100.0))),
+            AOI(id="display_A", contour=make_square_contour((300.0, 100.0))),
+            AOI(id=99, contour=make_square_contour((400.0, 100.0))),
+        ]
+        validate_aois(aois)  # Should not raise
+
+    def test_validate_aois_string_and_int_same_value(self) -> None:
+        """Test that string '1' and int 1 are considered different IDs."""
+        aois = [
+            AOI(id=1, contour=make_square_contour((100.0, 100.0))),
+            AOI(id="1", contour=make_square_contour((200.0, 100.0))),
+        ]
+        validate_aois(aois)  # Should not raise - different types
+
+
+class TestValidateAoisValidCases:
+    """Tests for validate_aois with valid inputs."""
+
+    def test_validate_aois_single(self) -> None:
+        """Test validation of single AOI."""
+        aois = [AOI(id="only_one", contour=make_square_contour((100.0, 100.0)))]
+        validate_aois(aois)  # Should not raise
+
+    def test_validate_aois_many(self) -> None:
+        """Test validation of many AOIs with unique IDs."""
+        aois = [
+            AOI(id=f"shelf_{i}", contour=make_square_contour((float(i * 50), 100.0)))
+            for i in range(100)
+        ]
+        validate_aois(aois)  # Should not raise
+
+
+class TestValidateAoisInvalidType:
+    """Tests for validate_aois with invalid input types."""
+
+    def test_validate_aois_not_a_list(self) -> None:
+        """Test rejection when aois is not a list."""
+        with pytest.raises(ValidationError, match="aois must be a list"):
+            validate_aois("not a list")  # type: ignore[arg-type]
+
+    def test_validate_aois_contains_non_aoi(self) -> None:
+        """Test rejection when list contains non-AOI."""
+        aois = [
+            AOI(id="valid", contour=make_square_contour((100.0, 100.0))),
+            {"id": "invalid", "contour": [[0, 0], [1, 0], [1, 1]]},  # Dict, not AOI
+        ]
+        with pytest.raises(ValidationError, match="index 1.*AOI"):
+            validate_aois(aois)  # type: ignore[arg-type]
+
+
+# =============================================================================
+# Tests: validate_tracking_params (Step 1.2)
+# =============================================================================
+
+
+class TestValidateTrackingParamsValid:
+    """Tests for validate_tracking_params with valid inputs."""
+
+    def test_validate_params_default_values(self) -> None:
+        """Test validation with typical default values."""
+        validate_tracking_params(fov_deg=90.0, max_range=500.0)  # Should not raise
+
+    def test_validate_params_minimum_fov(self) -> None:
+        """Test validation with minimum valid FOV."""
+        validate_tracking_params(fov_deg=0.1, max_range=100.0)  # Should not raise
+
+    def test_validate_params_maximum_fov(self) -> None:
+        """Test validation with maximum valid FOV (360 degrees)."""
+        validate_tracking_params(fov_deg=360.0, max_range=100.0)  # Should not raise
+
+    def test_validate_params_custom_sample_interval(self) -> None:
+        """Test validation with custom sample interval."""
+        validate_tracking_params(
+            fov_deg=90.0,
+            max_range=500.0,
+            sample_interval=0.5,
+        )  # Should not raise
+
+    def test_validate_params_integer_values(self) -> None:
+        """Test that integer values are accepted."""
+        validate_tracking_params(fov_deg=90, max_range=500, sample_interval=1)
+
+
+class TestValidateTrackingParamsFovInvalid:
+    """Tests for validate_tracking_params with invalid FOV."""
+
+    def test_validate_params_fov_zero(self) -> None:
+        """Test rejection of zero FOV."""
+        with pytest.raises(ValidationError, match="fov_deg.*range.*0.*360"):
+            validate_tracking_params(fov_deg=0.0, max_range=100.0)
+
+    def test_validate_params_fov_negative(self) -> None:
+        """Test rejection of negative FOV."""
+        with pytest.raises(ValidationError, match="fov_deg.*range.*0.*360"):
+            validate_tracking_params(fov_deg=-45.0, max_range=100.0)
+
+    def test_validate_params_fov_exceeds_360(self) -> None:
+        """Test rejection of FOV > 360."""
+        with pytest.raises(ValidationError, match="fov_deg.*range.*0.*360"):
+            validate_tracking_params(fov_deg=361.0, max_range=100.0)
+
+    def test_validate_params_fov_invalid_type(self) -> None:
+        """Test rejection of non-numeric FOV."""
+        with pytest.raises(ValidationError, match="fov_deg must be a number"):
+            validate_tracking_params(fov_deg="ninety", max_range=100.0)  # type: ignore[arg-type]
+
+
+class TestValidateTrackingParamsMaxRangeInvalid:
+    """Tests for validate_tracking_params with invalid max_range."""
+
+    def test_validate_params_max_range_zero(self) -> None:
+        """Test rejection of zero max_range."""
+        with pytest.raises(ValidationError, match="max_range must be positive"):
+            validate_tracking_params(fov_deg=90.0, max_range=0.0)
+
+    def test_validate_params_max_range_negative(self) -> None:
+        """Test rejection of negative max_range."""
+        with pytest.raises(ValidationError, match="max_range must be positive"):
+            validate_tracking_params(fov_deg=90.0, max_range=-100.0)
+
+    def test_validate_params_max_range_invalid_type(self) -> None:
+        """Test rejection of non-numeric max_range."""
+        with pytest.raises(ValidationError, match="max_range must be a number"):
+            validate_tracking_params(fov_deg=90.0, max_range="five hundred")  # type: ignore[arg-type]
+
+
+class TestValidateTrackingParamsSampleIntervalInvalid:
+    """Tests for validate_tracking_params with invalid sample_interval."""
+
+    def test_validate_params_sample_interval_zero(self) -> None:
+        """Test rejection of zero sample_interval."""
+        with pytest.raises(ValidationError, match="sample_interval must be positive"):
+            validate_tracking_params(fov_deg=90.0, max_range=100.0, sample_interval=0.0)
+
+    def test_validate_params_sample_interval_negative(self) -> None:
+        """Test rejection of negative sample_interval."""
+        with pytest.raises(ValidationError, match="sample_interval must be positive"):
+            validate_tracking_params(fov_deg=90.0, max_range=100.0, sample_interval=-1.0)
+
+    def test_validate_params_sample_interval_invalid_type(self) -> None:
+        """Test rejection of non-numeric sample_interval."""
+        with pytest.raises(ValidationError, match="sample_interval must be a number"):
+            validate_tracking_params(
+                fov_deg=90.0,
+                max_range=100.0,
+                sample_interval="one",  # type: ignore[arg-type]
+            )

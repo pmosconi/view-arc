@@ -328,3 +328,145 @@ class TrackingResult:
             List of AOI identifiers
         """
         return list(self.aoi_results.keys())
+
+
+# =============================================================================
+# Input Validation Functions (Step 1.2)
+# =============================================================================
+
+
+def validate_viewer_samples(
+    samples: list[ViewerSample],
+    frame_size: tuple[int, int] | None = None,
+) -> None:
+    """Validate a list of ViewerSample objects.
+
+    Checks that the sample list is valid and all samples have valid positions.
+    Empty sample lists are allowed (graceful handling).
+
+    Args:
+        samples: List of ViewerSample objects to validate
+        frame_size: Optional (width, height) tuple for bounds checking.
+            If provided, positions must be within [0, width) x [0, height).
+
+    Raises:
+        ValidationError: If samples is not a list
+        ValidationError: If any sample is not a ViewerSample instance
+        ValidationError: If any position is out of bounds (when frame_size provided)
+    """
+    if not isinstance(samples, list):
+        raise ValidationError(
+            f"samples must be a list, got {type(samples).__name__}"
+        )
+
+    for i, sample in enumerate(samples):
+        if not isinstance(sample, ViewerSample):
+            raise ValidationError(
+                f"Sample at index {i} must be a ViewerSample, "
+                f"got {type(sample).__name__}"
+            )
+
+        # Position bounds checking when frame_size is provided
+        if frame_size is not None:
+            width, height = frame_size
+            x, y = sample.position
+
+            if not (0 <= x < width):
+                raise ValidationError(
+                    f"Sample at index {i} has x position {x} out of bounds "
+                    f"[0, {width})"
+                )
+            if not (0 <= y < height):
+                raise ValidationError(
+                    f"Sample at index {i} has y position {y} out of bounds "
+                    f"[0, {height})"
+                )
+
+
+def validate_aois(aois: list[AOI]) -> None:
+    """Validate a list of AOI objects.
+
+    Checks that the AOI list is valid and all AOIs have unique IDs.
+    Empty AOI lists are allowed (graceful handling).
+
+    Args:
+        aois: List of AOI objects to validate
+
+    Raises:
+        ValidationError: If aois is not a list
+        ValidationError: If any element is not an AOI instance
+        ValidationError: If duplicate AOI IDs are found
+    """
+    if not isinstance(aois, list):
+        raise ValidationError(
+            f"aois must be a list, got {type(aois).__name__}"
+        )
+
+    seen_ids: set[str | int] = set()
+    duplicate_ids: list[str | int] = []
+
+    for i, aoi in enumerate(aois):
+        if not isinstance(aoi, AOI):
+            raise ValidationError(
+                f"AOI at index {i} must be an AOI instance, "
+                f"got {type(aoi).__name__}"
+            )
+
+        if aoi.id in seen_ids:
+            duplicate_ids.append(aoi.id)
+        seen_ids.add(aoi.id)
+
+    if duplicate_ids:
+        raise ValidationError(
+            f"Duplicate AOI IDs found: {duplicate_ids}"
+        )
+
+
+def validate_tracking_params(
+    fov_deg: float,
+    max_range: float,
+    sample_interval: float = 1.0,
+) -> None:
+    """Validate tracking parameters.
+
+    Checks that FOV, max_range, and sample_interval are valid values.
+
+    Args:
+        fov_deg: Field of view in degrees. Must be in (0, 360].
+        max_range: Maximum detection range in pixels. Must be positive.
+        sample_interval: Time interval between samples in seconds. Must be positive.
+
+    Raises:
+        ValidationError: If fov_deg is not in (0, 360]
+        ValidationError: If max_range is not positive
+        ValidationError: If sample_interval is not positive
+    """
+    # Validate fov_deg
+    if not isinstance(fov_deg, (int, float)):
+        raise ValidationError(
+            f"fov_deg must be a number, got {type(fov_deg).__name__}"
+        )
+    if not (0 < fov_deg <= 360):
+        raise ValidationError(
+            f"fov_deg must be in range (0, 360], got {fov_deg}"
+        )
+
+    # Validate max_range
+    if not isinstance(max_range, (int, float)):
+        raise ValidationError(
+            f"max_range must be a number, got {type(max_range).__name__}"
+        )
+    if max_range <= 0:
+        raise ValidationError(
+            f"max_range must be positive, got {max_range}"
+        )
+
+    # Validate sample_interval
+    if not isinstance(sample_interval, (int, float)):
+        raise ValidationError(
+            f"sample_interval must be a number, got {type(sample_interval).__name__}"
+        )
+    if sample_interval <= 0:
+        raise ValidationError(
+            f"sample_interval must be positive, got {sample_interval}"
+        )
