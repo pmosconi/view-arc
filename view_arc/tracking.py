@@ -23,7 +23,7 @@ import math
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from numbers import Real
-from typing import Any
+from typing import Any, Literal
 
 import numpy as np
 from numpy.typing import NDArray
@@ -330,6 +330,169 @@ class TrackingResult:
             List of AOI identifiers
         """
         return list(self.aoi_results.keys())
+
+
+# =============================================================================
+# Session Configuration Schema (Step 1.3)
+# =============================================================================
+
+
+@dataclass(frozen=True)
+class SessionConfig:
+    """Immutable acquisition metadata for a tracking session.
+
+    Captures session-level configuration that remains constant throughout
+    a batch acquisition period. This metadata is embedded in tracking results
+    for downstream analytics and reporting.
+
+    Assumptions documented here:
+    - Upstream ingestion guarantees monotonic timestamps and a strict 1 Hz cadence
+    - Each sample represents exactly 1 second of viewing time
+    - Coordinate space is invariant (image pixels) throughout each batch
+    - AOI contours remain fixed in the same coordinate space as viewer samples
+
+    Attributes:
+        session_id: Unique identifier for this tracking session
+        frame_size: Optional (width, height) of the image frame in pixels.
+            When provided, enables bounds checking for viewer sample positions.
+        coordinate_space: The coordinate system used for positions and contours.
+            Currently only "image" (pixel coordinates) is supported.
+        sample_interval_seconds: The time interval between samples in seconds.
+            Records the upstream cadence without re-validating timing.
+            Defaults to 1.0 (1 Hz sampling rate).
+        viewer_id: Optional identifier for the viewer being tracked.
+            Useful for cross-referencing batches in multi-viewer scenarios.
+        notes: Optional dictionary for downstream analytics metadata.
+            Can contain arbitrary key-value pairs for reporting or debugging.
+
+    Raises:
+        ValidationError: If session_id is empty or not a string
+        ValidationError: If frame_size is malformed (when provided)
+        ValidationError: If sample_interval_seconds is not positive
+    """
+
+    session_id: str
+    frame_size: tuple[int, int] | None = None
+    coordinate_space: Literal["image"] = "image"
+    sample_interval_seconds: float = 1.0
+    viewer_id: str | None = None
+    notes: dict[str, Any] | None = None
+
+    def __post_init__(self) -> None:
+        """Validate session configuration fields."""
+        _validate_session_config(self)
+
+    @property
+    def has_frame_bounds(self) -> bool:
+        """Check if frame size is available for bounds checking."""
+        return self.frame_size is not None
+
+    @property
+    def width(self) -> int | None:
+        """Get frame width, or None if frame_size not set."""
+        return self.frame_size[0] if self.frame_size else None
+
+    @property
+    def height(self) -> int | None:
+        """Get frame height, or None if frame_size not set."""
+        return self.frame_size[1] if self.frame_size else None
+
+
+def _validate_session_config(config: SessionConfig) -> None:
+    """Validate a SessionConfig instance.
+
+    Args:
+        config: The SessionConfig to validate
+
+    Raises:
+        ValidationError: If any field is invalid
+    """
+    # Validate session_id
+    if not isinstance(config.session_id, str):
+        raise ValidationError(
+            f"session_id must be a string, got {type(config.session_id).__name__}"
+        )
+    if not config.session_id:
+        raise ValidationError("session_id cannot be empty")
+
+    # Validate frame_size if provided
+    if config.frame_size is not None:
+        if not isinstance(config.frame_size, (tuple, list)):
+            raise ValidationError(
+                f"frame_size must be a tuple of (width, height), "
+                f"got {type(config.frame_size).__name__}"
+            )
+        if len(config.frame_size) != 2:
+            raise ValidationError(
+                f"frame_size must have exactly 2 elements (width, height), "
+                f"got {len(config.frame_size)} elements"
+            )
+
+        width, height = config.frame_size
+
+        # Validate width
+        if not isinstance(width, (int, np.integer)):
+            # Also accept float if it's a whole number
+            if isinstance(width, Real) and float(width) == int(float(width)):
+                pass  # Accept whole-number floats
+            else:
+                raise ValidationError(
+                    f"frame_size width must be an integer, got {type(width).__name__}"
+                )
+        width_int = int(width)
+        if width_int <= 0:
+            raise ValidationError(
+                f"frame_size width must be positive, got {width}"
+            )
+
+        # Validate height
+        if not isinstance(height, (int, np.integer)):
+            # Also accept float if it's a whole number
+            if isinstance(height, Real) and float(height) == int(float(height)):
+                pass  # Accept whole-number floats
+            else:
+                raise ValidationError(
+                    f"frame_size height must be an integer, got {type(height).__name__}"
+                )
+        height_int = int(height)
+        if height_int <= 0:
+            raise ValidationError(
+                f"frame_size height must be positive, got {height}"
+            )
+
+    # Validate coordinate_space (should only be "image")
+    if config.coordinate_space != "image":
+        raise ValidationError(
+            f"coordinate_space must be 'image', got '{config.coordinate_space}'"
+        )
+
+    # Validate sample_interval_seconds
+    if not isinstance(config.sample_interval_seconds, Real):
+        raise ValidationError(
+            f"sample_interval_seconds must be a number, "
+            f"got {type(config.sample_interval_seconds).__name__}"
+        )
+    interval_float = float(config.sample_interval_seconds)
+    if not math.isfinite(interval_float):
+        raise ValidationError(
+            f"sample_interval_seconds must be finite, got {config.sample_interval_seconds}"
+        )
+    if interval_float <= 0:
+        raise ValidationError(
+            f"sample_interval_seconds must be positive, got {config.sample_interval_seconds}"
+        )
+
+    # Validate viewer_id if provided
+    if config.viewer_id is not None and not isinstance(config.viewer_id, str):
+        raise ValidationError(
+            f"viewer_id must be a string or None, got {type(config.viewer_id).__name__}"
+        )
+
+    # Validate notes if provided
+    if config.notes is not None and not isinstance(config.notes, dict):
+        raise ValidationError(
+            f"notes must be a dict or None, got {type(config.notes).__name__}"
+        )
 
 
 # =============================================================================

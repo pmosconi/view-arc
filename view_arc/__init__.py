@@ -27,6 +27,7 @@ from view_arc.tracking import (
     AOI,
     AOIResult,
     TrackingResult,
+    SessionConfig,
     ValidationError,
 )
 
@@ -40,6 +41,7 @@ __all__ = [
     'AOI',
     'AOIResult',
     'TrackingResult',
+    'SessionConfig',
     'ValidationError',
     # Debug utilities
     'DebugResult',
