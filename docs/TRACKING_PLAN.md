@@ -28,6 +28,13 @@ Extend the view arc obstacle detection system to accumulate "attention seconds" 
 
 ## Phase 1: Data Structures & Input Validation (Day 1)
 
+> **Implementation Note**: Before implementing new validation or utility functions, 
+> check for existing helpers in `view_arc.geometry`, `view_arc.clipping`, and 
+> `view_arc.visualize`. Reuse these where possible to avoid duplicated logic:
+> - `validate_and_get_direction_angle()` in `geometry.py` - validates unit vectors
+> - `is_valid_polygon()` in `clipping.py` - validates polygon vertex counts
+> - Coordinate transforms and polar conversions in `geometry.py`
+
 ### Step 1.1: Core Data Structures
 **Implementation in `view_arc/tracking.py`:**
 - `ViewerSample` dataclass - single observation (position, direction, timestamp)

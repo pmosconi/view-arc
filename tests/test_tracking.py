@@ -170,6 +170,21 @@ class TestViewerSampleInvalidDirection:
         sample = ViewerSample(position=(0.0, 0.0), direction=(1.0 + 1e-7, 0.0))
         assert sample.direction[0] == pytest.approx(1.0, rel=1e-5)
 
+    def test_viewer_sample_invalid_direction_3d_vector(self) -> None:
+        """Test that 3D vector direction is rejected."""
+        with pytest.raises(ValidationError, match="2 components"):
+            ViewerSample(position=(0.0, 0.0), direction=(0.0, 0.0, 1.0))  # type: ignore[arg-type]
+
+    def test_viewer_sample_invalid_direction_1d_vector(self) -> None:
+        """Test that 1D vector direction is rejected."""
+        with pytest.raises(ValidationError, match="2 components"):
+            ViewerSample(position=(0.0, 0.0), direction=(1.0,))  # type: ignore[arg-type]
+
+    def test_viewer_sample_invalid_direction_4d_vector(self) -> None:
+        """Test that 4D vector direction is rejected."""
+        with pytest.raises(ValidationError, match="2 components"):
+            ViewerSample(position=(0.0, 0.0), direction=(0.5, 0.5, 0.5, 0.5))  # type: ignore[arg-type]
+
 
 # =============================================================================
 # Tests: AOI (Area of Interest)
@@ -364,11 +379,12 @@ class TestTrackingResultAccessors:
             aoi_results=aoi_results,
             total_samples=20,
             samples_with_hits=15,
+            samples_no_winner=5,
         )
 
         assert result.total_samples == 20
         assert result.samples_with_hits == 15
-        assert result.samples_no_winner == 5  # Auto-calculated
+        assert result.samples_no_winner == 5
 
     def test_tracking_result_get_aoi_result(self) -> None:
         """Test get_aoi_result returns correct AOIResult."""
@@ -377,6 +393,7 @@ class TestTrackingResultAccessors:
             aoi_results={"shelf_1": aoi_result},
             total_samples=10,
             samples_with_hits=7,
+            samples_no_winner=3,
         )
 
         retrieved = result.get_aoi_result("shelf_1")
@@ -389,6 +406,7 @@ class TestTrackingResultAccessors:
             aoi_results={},
             total_samples=10,
             samples_with_hits=0,
+            samples_no_winner=10,
         )
 
         assert result.get_aoi_result("nonexistent") is None
@@ -402,6 +420,7 @@ class TestTrackingResultAccessors:
             },
             total_samples=10,
             samples_with_hits=8,
+            samples_no_winner=2,
         )
 
         assert result.get_hit_count("a") == 5
@@ -418,6 +437,7 @@ class TestTrackingResultAccessors:
             },
             total_samples=20,
             samples_with_hits=15,
+            samples_no_winner=5,
         )
 
         assert result.get_total_hits() == 15
@@ -430,6 +450,7 @@ class TestTrackingResultAccessors:
             },
             total_samples=15,
             samples_with_hits=10,
+            samples_no_winner=5,
         )
 
         assert result.get_attention_seconds("a") == 10.5
@@ -441,6 +462,7 @@ class TestTrackingResultAccessors:
             aoi_results={},
             total_samples=100,
             samples_with_hits=75,
+            samples_no_winner=25,
         )
 
         assert result.coverage_ratio == 0.75
@@ -451,6 +473,7 @@ class TestTrackingResultAccessors:
             aoi_results={},
             total_samples=0,
             samples_with_hits=0,
+            samples_no_winner=0,
         )
 
         assert result.coverage_ratio == 0.0
@@ -465,6 +488,7 @@ class TestTrackingResultAccessors:
             },
             total_samples=10,
             samples_with_hits=5,
+            samples_no_winner=5,
         )
 
         ids = result.aoi_ids
@@ -472,17 +496,6 @@ class TestTrackingResultAccessors:
         assert "shelf_1" in ids
         assert "shelf_2" in ids
         assert 42 in ids
-
-    def test_tracking_result_samples_no_winner_auto_calculated(self) -> None:
-        """Test that samples_no_winner is auto-calculated if inconsistent."""
-        result = TrackingResult(
-            aoi_results={},
-            total_samples=100,
-            samples_with_hits=60,
-            samples_no_winner=999,  # Wrong value, should be corrected
-        )
-
-        assert result.samples_no_winner == 40
 
     def test_tracking_result_with_integer_and_string_ids(self) -> None:
         """Test TrackingResult handles mixed ID types correctly."""
@@ -493,7 +506,102 @@ class TestTrackingResultAccessors:
             },
             total_samples=10,
             samples_with_hits=8,
+            samples_no_winner=2,
         )
 
         assert result.get_hit_count(1) == 5
         assert result.get_hit_count("two") == 3
+
+
+class TestTrackingResultValidation:
+    """Tests for TrackingResult input validation."""
+
+    def test_tracking_result_rejects_negative_total_samples(self) -> None:
+        """Test that negative total_samples is rejected."""
+        with pytest.raises(ValidationError, match="total_samples must be non-negative"):
+            TrackingResult(
+                aoi_results={},
+                total_samples=-1,
+                samples_with_hits=0,
+                samples_no_winner=0,
+            )
+
+    def test_tracking_result_rejects_negative_samples_with_hits(self) -> None:
+        """Test that negative samples_with_hits is rejected."""
+        with pytest.raises(ValidationError, match="samples_with_hits must be non-negative"):
+            TrackingResult(
+                aoi_results={},
+                total_samples=10,
+                samples_with_hits=-1,
+                samples_no_winner=11,
+            )
+
+    def test_tracking_result_rejects_negative_samples_no_winner(self) -> None:
+        """Test that negative samples_no_winner is rejected."""
+        with pytest.raises(ValidationError, match="samples_no_winner must be non-negative"):
+            TrackingResult(
+                aoi_results={},
+                total_samples=10,
+                samples_with_hits=5,
+                samples_no_winner=-1,
+            )
+
+    def test_tracking_result_rejects_samples_with_hits_exceeds_total(self) -> None:
+        """Test that samples_with_hits > total_samples is rejected."""
+        with pytest.raises(ValidationError, match="samples_with_hits.*cannot exceed.*total_samples"):
+            TrackingResult(
+                aoi_results={},
+                total_samples=10,
+                samples_with_hits=15,
+                samples_no_winner=0,
+            )
+
+    def test_tracking_result_rejects_samples_no_winner_exceeds_total(self) -> None:
+        """Test that samples_no_winner > total_samples is rejected."""
+        with pytest.raises(ValidationError, match="samples_no_winner.*cannot exceed.*total_samples"):
+            TrackingResult(
+                aoi_results={},
+                total_samples=10,
+                samples_with_hits=0,
+                samples_no_winner=15,
+            )
+
+    def test_tracking_result_rejects_inconsistent_totals(self) -> None:
+        """Test that samples_with_hits + samples_no_winner != total_samples is rejected."""
+        with pytest.raises(ValidationError, match="must equal total_samples"):
+            TrackingResult(
+                aoi_results={},
+                total_samples=100,
+                samples_with_hits=60,
+                samples_no_winner=30,  # Should be 40
+            )
+
+    def test_tracking_result_accepts_valid_zero_samples(self) -> None:
+        """Test that zero samples is valid when all counts are zero."""
+        result = TrackingResult(
+            aoi_results={},
+            total_samples=0,
+            samples_with_hits=0,
+            samples_no_winner=0,
+        )
+        assert result.total_samples == 0
+
+    def test_tracking_result_accepts_all_hits(self) -> None:
+        """Test that 100% hit rate is valid."""
+        result = TrackingResult(
+            aoi_results={"a": AOIResult(aoi_id="a", hit_count=10)},
+            total_samples=10,
+            samples_with_hits=10,
+            samples_no_winner=0,
+        )
+        assert result.coverage_ratio == 1.0
+
+    def test_tracking_result_accepts_no_hits(self) -> None:
+        """Test that 0% hit rate is valid."""
+        result = TrackingResult(
+            aoi_results={},
+            total_samples=10,
+            samples_with_hits=0,
+            samples_no_winner=10,
+        )
+        assert result.coverage_ratio == 0.0

@@ -37,14 +37,20 @@ class ValidationError(Exception):
 
 
 def _validate_direction(direction: tuple[float, float]) -> None:
-    """Validate that direction is a unit vector.
+    """Validate that direction is a unit vector with exactly 2 components.
 
     Args:
         direction: A 2D direction vector (dx, dy)
 
     Raises:
+        ValidationError: If direction does not have exactly 2 components
         ValidationError: If direction is not a unit vector
     """
+    # Check that direction has exactly 2 components
+    if len(direction) != 2:
+        raise ValidationError(
+            f"Direction must have exactly 2 components (dx, dy), got {len(direction)} components"
+        )
     try:
         validate_and_get_direction_angle(np.array(direction, dtype=np.float32))
     except ValueError as e:
@@ -213,14 +219,52 @@ class TrackingResult:
     samples_no_winner: int = 0
 
     def __post_init__(self) -> None:
-        """Validate result consistency."""
+        """Validate result consistency.
+
+        Raises:
+            ValidationError: If total_samples is negative
+            ValidationError: If samples_with_hits is out of valid range [0, total_samples]
+            ValidationError: If samples_no_winner is out of valid range [0, total_samples]
+            ValidationError: If samples_with_hits + samples_no_winner != total_samples
+        """
         # Convert to dict if needed (Mapping is read-only interface)
         if not isinstance(self.aoi_results, dict):
             object.__setattr__(self, "aoi_results", dict(self.aoi_results))
-        # Ensure samples_with_hits + samples_no_winner equals total_samples
+
+        # Validate total_samples is non-negative
+        if self.total_samples < 0:
+            raise ValidationError(
+                f"total_samples must be non-negative, got {self.total_samples}"
+            )
+
+        # Validate samples_with_hits is in valid range [0, total_samples]
+        if self.samples_with_hits < 0:
+            raise ValidationError(
+                f"samples_with_hits must be non-negative, got {self.samples_with_hits}"
+            )
+        if self.samples_with_hits > self.total_samples:
+            raise ValidationError(
+                f"samples_with_hits ({self.samples_with_hits}) cannot exceed "
+                f"total_samples ({self.total_samples})"
+            )
+
+        # Validate samples_no_winner is in valid range [0, total_samples]
+        if self.samples_no_winner < 0:
+            raise ValidationError(
+                f"samples_no_winner must be non-negative, got {self.samples_no_winner}"
+            )
+        if self.samples_no_winner > self.total_samples:
+            raise ValidationError(
+                f"samples_no_winner ({self.samples_no_winner}) cannot exceed "
+                f"total_samples ({self.total_samples})"
+            )
+
+        # Validate that samples_with_hits + samples_no_winner == total_samples
         if self.samples_with_hits + self.samples_no_winner != self.total_samples:
-            # Auto-calculate samples_no_winner if not set correctly
-            self.samples_no_winner = self.total_samples - self.samples_with_hits
+            raise ValidationError(
+                f"samples_with_hits ({self.samples_with_hits}) + samples_no_winner "
+                f"({self.samples_no_winner}) must equal total_samples ({self.total_samples})"
+            )
 
     def get_aoi_result(self, aoi_id: str | int) -> AOIResult | None:
         """Get the result for a specific AOI.
