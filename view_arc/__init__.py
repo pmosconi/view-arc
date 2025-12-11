@@ -29,6 +29,8 @@ from view_arc.tracking import (
     TrackingResult,
     SessionConfig,
     ValidationError,
+    SingleSampleResult,
+    process_single_sample,
 )
 
 __all__ = [
@@ -43,6 +45,8 @@ __all__ = [
     'TrackingResult',
     'SessionConfig',
     'ValidationError',
+    'SingleSampleResult',
+    'process_single_sample',
     # Debug utilities
     'DebugResult',
     'ClipResult',

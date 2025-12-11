@@ -757,3 +757,142 @@ def validate_tracking_params(
         raise ValidationError(
             f"sample_interval must be positive, got {sample_interval}"
         )
+
+# =============================================================================
+# Core Tracking Algorithm (Phase 2)
+# =============================================================================
+
+
+@dataclass
+class SingleSampleResult:
+    """Result from processing a single viewer sample.
+
+    Contains detailed information about which AOI (if any) was selected
+    as the winner for a single sample observation.
+
+    Attributes:
+        winning_aoi_id: The ID of the AOI with largest angular coverage,
+            or None if no AOI was visible in the view arc
+        angular_coverage: Angular coverage of the winning AOI in radians
+        min_distance: Minimum distance to the winning AOI
+        all_coverage: Optional dict mapping all visible AOI IDs to their coverage
+    """
+
+    winning_aoi_id: str | int | None
+    angular_coverage: float = 0.0
+    min_distance: float = float("inf")
+    all_coverage: dict[str | int, float] | None = None
+
+
+def process_single_sample(
+    sample: ViewerSample,
+    aois: list[AOI],
+    fov_deg: float = 90.0,
+    max_range: float = 500.0,
+    return_details: bool = False,
+) -> str | int | None | SingleSampleResult:
+    """Process a single viewer sample to find which AOI is being viewed.
+
+    This is a wrapper around `find_largest_obstacle()` that:
+    - Accepts a ViewerSample and list of AOIs
+    - Converts AOI contours to the format expected by find_largest_obstacle
+    - Returns the winning AOI ID (or None if no winner)
+    - Optionally returns detailed result for debugging
+
+    Args:
+        sample: A ViewerSample containing position and direction
+        aois: List of AOI objects to check against
+        fov_deg: Field of view in degrees (default 90.0)
+        max_range: Maximum detection range in pixels (default 500.0)
+        return_details: If True, return SingleSampleResult with full details;
+            if False, return just the winning AOI ID or None
+
+    Returns:
+        If return_details is False: The winning AOI ID (str or int), or None
+            if no AOI was visible in the view arc
+        If return_details is True: A SingleSampleResult with full information
+
+    Raises:
+        ValidationError: If sample is not a ViewerSample
+        ValidationError: If aois is not a list of AOI objects
+        ValidationError: If fov_deg or max_range are invalid
+
+    Example:
+        >>> sample = ViewerSample(position=(100.0, 100.0), direction=(0.0, 1.0))
+        >>> aoi = AOI(id="shelf1", contour=np.array([[90, 150], [110, 150], [100, 170]]))
+        >>> winner_id = process_single_sample(sample, [aoi])
+        >>> print(f"Viewer is looking at: {winner_id}")
+    """
+    # Import here to avoid circular imports
+    from view_arc.api import find_largest_obstacle
+
+    # Validate inputs
+    if not isinstance(sample, ViewerSample):
+        raise ValidationError(
+            f"sample must be a ViewerSample, got {type(sample).__name__}"
+        )
+
+    if not isinstance(aois, list):
+        raise ValidationError(f"aois must be a list, got {type(aois).__name__}")
+
+    for i, aoi in enumerate(aois):
+        if not isinstance(aoi, AOI):
+            raise ValidationError(
+                f"aois[{i}] must be an AOI, got {type(aoi).__name__}"
+            )
+
+    # Validate tracking parameters
+    validate_tracking_params(fov_deg, max_range)
+
+    # Handle empty AOI list
+    if len(aois) == 0:
+        if return_details:
+            return SingleSampleResult(winning_aoi_id=None)
+        return None
+
+    # Build mapping from obstacle index to AOI ID
+    aoi_id_by_index: dict[int, str | int] = {}
+    obstacle_contours: list[NDArray[np.float32]] = []
+
+    for idx, aoi in enumerate(aois):
+        aoi_id_by_index[idx] = aoi.id
+        obstacle_contours.append(aoi.contour.astype(np.float32))
+
+    # Convert sample to numpy arrays for find_largest_obstacle
+    viewer_point = np.array(sample.position, dtype=np.float32)
+    view_direction = np.array(sample.direction, dtype=np.float32)
+
+    # Call the core obstacle detection API
+    result = find_largest_obstacle(
+        viewer_point=viewer_point,
+        view_direction=view_direction,
+        field_of_view_deg=fov_deg,
+        max_range=max_range,
+        obstacle_contours=obstacle_contours,
+        return_intervals=False,
+        return_all_coverage=return_details,
+    )
+
+    # Map obstacle index back to AOI ID
+    winning_aoi_id: str | int | None = None
+    if result.obstacle_id is not None:
+        winning_aoi_id = aoi_id_by_index.get(result.obstacle_id)
+
+    if not return_details:
+        return winning_aoi_id
+
+    # Build detailed result
+    all_coverage: dict[str | int, float] | None = None
+    if result.all_coverage is not None:
+        all_coverage = {}
+        for obs_idx, coverage in result.all_coverage.items():
+            aoi_id = aoi_id_by_index.get(obs_idx)
+            if aoi_id is not None:
+                all_coverage[aoi_id] = coverage
+
+    return SingleSampleResult(
+        winning_aoi_id=winning_aoi_id,
+        angular_coverage=result.angular_coverage,
+        min_distance=result.min_distance,
+        all_coverage=all_coverage,
+    )
