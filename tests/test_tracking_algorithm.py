@@ -17,6 +17,7 @@ from numpy.typing import NDArray
 
 from view_arc.tracking import (
     AOI,
+    AOIIntervalBreakdown,
     SingleSampleResult,
     ValidationError,
     ViewerSample,
@@ -142,60 +143,74 @@ class TestProcessSingleSampleMultipleAOI:
     """Test process_single_sample with multiple AOIs - returns winner."""
 
     def test_multiple_aois_larger_wins(self) -> None:
-        """Larger AOI (more angular coverage) should win."""
+        """AOI with larger angular coverage should win.
+
+        Geometry: Viewer looks up at two non-overlapping AOIs at same distance.
+        The larger AOI (wider rectangle) has more angular coverage and should win.
+        """
         # Viewer at (100, 100), looking up
         sample = ViewerSample(
             position=(100.0, 100.0),
             direction=(0.0, 1.0),
         )
 
-        # Small AOI closer to viewer
+        # Small AOI: 20x20 square at distance 50, centered in view
+        # At distance 50, a 20-wide object subtends ~22.6° (2*atan(10/50))
         small_aoi = AOI(
             id="small_shelf",
-            contour=make_square_contour((100.0, 130.0), half_size=10.0),
+            contour=make_square_contour((100.0, 150.0), half_size=10.0),
         )
 
-        # Large AOI farther from viewer (but not occluded by small one)
+        # Large AOI: 80x20 rectangle at same distance, to the right
+        # At distance 50, an 80-wide object subtends ~77.3° (2*atan(40/50))
+        # Placed so it doesn't overlap with small_aoi
         large_aoi = AOI(
             id="large_shelf",
-            contour=make_rectangle_contour((150.0, 160.0), width=60.0, height=40.0),
+            contour=make_rectangle_contour((160.0, 150.0), width=80.0, height=20.0),
         )
 
         result = process_single_sample(
-            sample, [small_aoi, large_aoi], fov_deg=90.0, max_range=200.0
+            sample, [small_aoi, large_aoi], fov_deg=120.0, max_range=200.0
         )
 
-        # The one with larger angular coverage wins
-        assert result in ["small_shelf", "large_shelf"]
+        # The larger AOI should win due to greater angular coverage
+        assert result == "large_shelf"
 
     def test_multiple_aois_all_visible(self) -> None:
-        """When multiple AOIs are visible, one should be selected as winner."""
+        """When multiple equal-sized AOIs are visible, the closest one wins.
+
+        Geometry: Three equal-sized AOIs at different distances.
+        The center AOI is closest and should subtend the largest angle.
+        """
         sample = ViewerSample(
             position=(100.0, 100.0),
             direction=(0.0, 1.0),
         )
 
+        # Left AOI: at distance 80, same size as others
         aoi_left = AOI(
             id="left_shelf",
-            contour=make_square_contour((70.0, 150.0), half_size=15.0),
+            contour=make_square_contour((60.0, 180.0), half_size=15.0),
         )
 
+        # Center AOI: at distance 40 - CLOSEST, should win
         aoi_center = AOI(
             id="center_shelf",
-            contour=make_square_contour((100.0, 150.0), half_size=15.0),
+            contour=make_square_contour((100.0, 140.0), half_size=15.0),
         )
 
+        # Right AOI: at distance 80, same size as others
         aoi_right = AOI(
             id="right_shelf",
-            contour=make_square_contour((130.0, 150.0), half_size=15.0),
+            contour=make_square_contour((140.0, 180.0), half_size=15.0),
         )
 
         result = process_single_sample(
-            sample, [aoi_left, aoi_center, aoi_right], fov_deg=90.0, max_range=100.0
+            sample, [aoi_left, aoi_center, aoi_right], fov_deg=120.0, max_range=150.0
         )
 
-        # One of them should win
-        assert result in ["left_shelf", "center_shelf", "right_shelf"]
+        # Center shelf is closest, so it subtends the largest angle and wins
+        assert result == "center_shelf"
 
     def test_multiple_aois_only_one_visible(self) -> None:
         """When only one AOI is in FOV, that one should win."""
@@ -383,22 +398,29 @@ class TestProcessSingleSamplePreservesAOIId:
         assert isinstance(result, int)
 
     def test_mixed_id_types_preserved(self) -> None:
-        """Mixed string and integer IDs should all be preserved."""
+        """Mixed string and integer IDs should all be preserved.
+
+        The center AOI ("shelf_A") is closest and should win.
+        """
         sample = ViewerSample(
             position=(100.0, 100.0),
             direction=(0.0, 1.0),
         )
 
-        aois = [
-            AOI(id=1, contour=make_square_contour((80.0, 150.0), half_size=10.0)),
-            AOI(id="shelf_A", contour=make_square_contour((100.0, 150.0), half_size=10.0)),
-            AOI(id=2, contour=make_square_contour((120.0, 150.0), half_size=10.0)),
-        ]
+        # Left AOI at distance 60
+        aoi_left = AOI(id=1, contour=make_square_contour((70.0, 160.0), half_size=10.0))
+        # Center AOI at distance 40 - CLOSEST, should win
+        aoi_center = AOI(id="shelf_A", contour=make_square_contour((100.0, 140.0), half_size=10.0))
+        # Right AOI at distance 60
+        aoi_right = AOI(id=2, contour=make_square_contour((130.0, 160.0), half_size=10.0))
+
+        aois = [aoi_left, aoi_center, aoi_right]
 
         result = process_single_sample(sample, aois, fov_deg=90.0, max_range=100.0)
 
-        # Result should be one of the original IDs
-        assert result in [1, "shelf_A", 2]
+        # Center shelf ("shelf_A") is closest and should win
+        assert result == "shelf_A"
+        assert isinstance(result, str)
 
 
 class TestProcessSingleSampleReturnDetails:
@@ -443,6 +465,110 @@ class TestProcessSingleSampleReturnDetails:
         assert result.all_coverage is not None
         # Both AOIs should have some coverage
         assert len(result.all_coverage) >= 1
+
+    def test_details_includes_all_distances(self) -> None:
+        """Detailed result should include min distances for all visible AOIs."""
+        sample = ViewerSample(
+            position=(100.0, 100.0),
+            direction=(0.0, 1.0),
+        )
+
+        # Near AOI at ~25 pixels, to the left
+        aoi_near = AOI(id="near", contour=make_square_contour((70.0, 125.0), half_size=10.0))
+        # Far AOI at ~65 pixels, to the right (not occluded by near AOI)
+        aoi_far = AOI(id="far", contour=make_square_contour((130.0, 165.0), half_size=10.0))
+
+        result = process_single_sample(
+            sample, [aoi_near, aoi_far], fov_deg=120.0, max_range=150.0, return_details=True
+        )
+
+        assert isinstance(result, SingleSampleResult)
+        assert result.all_distances is not None
+        assert "near" in result.all_distances
+        assert "far" in result.all_distances
+        # Near AOI should have smaller distance
+        assert result.all_distances["near"] < result.all_distances["far"]
+
+    def test_details_includes_interval_details(self) -> None:
+        """Detailed result should include interval breakdown for debugging."""
+        sample = ViewerSample(
+            position=(100.0, 100.0),
+            direction=(0.0, 1.0),
+        )
+
+        aoi = AOI(
+            id="shelf1",
+            contour=make_square_contour((100.0, 150.0), half_size=20.0),
+        )
+
+        result = process_single_sample(
+            sample, [aoi], fov_deg=90.0, max_range=100.0, return_details=True
+        )
+
+        assert isinstance(result, SingleSampleResult)
+        assert result.interval_details is not None
+        assert len(result.interval_details) > 0
+        # All intervals should be AOIIntervalBreakdown instances
+        for interval in result.interval_details:
+            assert isinstance(interval, AOIIntervalBreakdown)
+            assert interval.aoi_id == "shelf1"
+            assert interval.angular_span > 0
+
+    def test_details_interval_uses_aoi_ids(self) -> None:
+        """Interval details should use AOI IDs, not obstacle indices."""
+        sample = ViewerSample(
+            position=(100.0, 100.0),
+            direction=(0.0, 1.0),
+        )
+
+        aoi = AOI(
+            id="my-custom-id-123",
+            contour=make_square_contour((100.0, 150.0), half_size=20.0),
+        )
+
+        result = process_single_sample(
+            sample, [aoi], fov_deg=90.0, max_range=100.0, return_details=True
+        )
+
+        assert isinstance(result, SingleSampleResult)
+        assert result.interval_details is not None
+        # The AOI ID should be the string, not the index 0
+        for interval in result.interval_details:
+            assert interval.aoi_id == "my-custom-id-123"
+
+    def test_get_winner_intervals_helper(self) -> None:
+        """get_winner_intervals() should return only the winner's intervals."""
+        sample = ViewerSample(
+            position=(100.0, 100.0),
+            direction=(0.0, 1.0),
+        )
+
+        # Winner: closer AOI with larger angular coverage
+        aoi_winner = AOI(
+            id="winner",
+            contour=make_square_contour((100.0, 130.0), half_size=20.0),
+        )
+        # Loser: farther AOI
+        aoi_loser = AOI(
+            id="loser",
+            contour=make_square_contour((100.0, 180.0), half_size=15.0),
+        )
+
+        result = process_single_sample(
+            sample, [aoi_winner, aoi_loser], fov_deg=90.0, max_range=150.0, return_details=True
+        )
+
+        assert isinstance(result, SingleSampleResult)
+        winner_intervals = result.get_winner_intervals()
+        all_intervals = result.get_all_intervals()
+
+        # Winner intervals should only contain "winner" AOI
+        assert len(winner_intervals) > 0
+        for interval in winner_intervals:
+            assert interval.aoi_id == "winner"
+
+        # All intervals may contain both (or winner may occlude loser)
+        assert len(all_intervals) >= len(winner_intervals)
 
     def test_details_no_winner(self) -> None:
         """Detailed result with no winner should have None ID."""

@@ -30,6 +30,7 @@ from view_arc.tracking import (
     SessionConfig,
     ValidationError,
     SingleSampleResult,
+    AOIIntervalBreakdown,
     process_single_sample,
 )
 
@@ -46,6 +47,7 @@ __all__ = [
     'SessionConfig',
     'ValidationError',
     'SingleSampleResult',
+    'AOIIntervalBreakdown',
     'process_single_sample',
     # Debug utilities
     'DebugResult',

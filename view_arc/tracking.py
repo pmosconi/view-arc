@@ -764,6 +764,45 @@ def validate_tracking_params(
 
 
 @dataclass
+class AOIIntervalBreakdown:
+    """Detailed breakdown of a single angular interval for an AOI.
+
+    This mirrors the IntervalBreakdown from the core API but uses AOI IDs
+    instead of obstacle indices.
+
+    Attributes:
+        angle_start: Start angle in radians
+        angle_end: End angle in radians
+        angular_span: Angular span in radians
+        aoi_id: ID of the AOI owning this interval
+        min_distance: Minimum distance within this interval
+        wraps: Whether the interval crosses the ±π discontinuity
+    """
+
+    angle_start: float
+    angle_end: float
+    angular_span: float
+    aoi_id: str | int
+    min_distance: float
+    wraps: bool = False
+
+    @property
+    def angular_span_deg(self) -> float:
+        """Angular span in degrees."""
+        return float(np.rad2deg(self.angular_span))
+
+    @property
+    def angle_start_deg(self) -> float:
+        """Start angle in degrees."""
+        return float(np.rad2deg(self.angle_start))
+
+    @property
+    def angle_end_deg(self) -> float:
+        """End angle in degrees."""
+        return float(np.rad2deg(self.angle_end))
+
+
+@dataclass
 class SingleSampleResult:
     """Result from processing a single viewer sample.
 
@@ -776,12 +815,37 @@ class SingleSampleResult:
         angular_coverage: Angular coverage of the winning AOI in radians
         min_distance: Minimum distance to the winning AOI
         all_coverage: Optional dict mapping all visible AOI IDs to their coverage
+        all_distances: Optional dict mapping all visible AOI IDs to their min distances
+        interval_details: Optional list of AOIIntervalBreakdown objects showing
+            all angular intervals and which AOI owns each one
     """
 
     winning_aoi_id: str | int | None
     angular_coverage: float = 0.0
     min_distance: float = float("inf")
     all_coverage: dict[str | int, float] | None = None
+    all_distances: dict[str | int, float] | None = None
+    interval_details: list[AOIIntervalBreakdown] | None = None
+
+    def get_winner_intervals(self) -> list[AOIIntervalBreakdown]:
+        """Get intervals owned by the winning AOI only.
+
+        Returns:
+            List of AOIIntervalBreakdown objects for the winner, or empty list
+        """
+        if self.interval_details is None or self.winning_aoi_id is None:
+            return []
+        return [iv for iv in self.interval_details if iv.aoi_id == self.winning_aoi_id]
+
+    def get_all_intervals(self) -> list[AOIIntervalBreakdown]:
+        """Get all intervals (for all AOIs, not just the winner).
+
+        Returns:
+            List of AOIIntervalBreakdown objects, or empty list if not available
+        """
+        if self.interval_details is not None:
+            return self.interval_details
+        return []
 
 
 def process_single_sample(
@@ -863,13 +927,14 @@ def process_single_sample(
     view_direction = np.array(sample.direction, dtype=np.float32)
 
     # Call the core obstacle detection API
+    # When details are requested, also get intervals for debugging
     result = find_largest_obstacle(
         viewer_point=viewer_point,
         view_direction=view_direction,
         field_of_view_deg=fov_deg,
         max_range=max_range,
         obstacle_contours=obstacle_contours,
-        return_intervals=False,
+        return_intervals=return_details,
         return_all_coverage=return_details,
     )
 
@@ -890,9 +955,38 @@ def process_single_sample(
             if aoi_id is not None:
                 all_coverage[aoi_id] = coverage
 
+    # Build all_distances mapping
+    all_distances: dict[str | int, float] | None = None
+    if result.all_distances is not None:
+        all_distances = {}
+        for obs_idx, distance in result.all_distances.items():
+            aoi_id = aoi_id_by_index.get(obs_idx)
+            if aoi_id is not None:
+                all_distances[aoi_id] = distance
+
+    # Build interval_details with AOI IDs instead of obstacle indices
+    interval_details: list[AOIIntervalBreakdown] | None = None
+    if result.interval_details is not None:
+        interval_details = []
+        for iv in result.interval_details:
+            aoi_id = aoi_id_by_index.get(iv.obstacle_id)
+            if aoi_id is not None:
+                interval_details.append(
+                    AOIIntervalBreakdown(
+                        angle_start=iv.angle_start,
+                        angle_end=iv.angle_end,
+                        angular_span=iv.angular_span,
+                        aoi_id=aoi_id,
+                        min_distance=iv.min_distance,
+                        wraps=iv.wraps,
+                    )
+                )
+
     return SingleSampleResult(
         winning_aoi_id=winning_aoi_id,
         angular_coverage=result.angular_coverage,
         min_distance=result.min_distance,
         all_coverage=all_coverage,
+        all_distances=all_distances,
+        interval_details=interval_details,
     )
