@@ -167,7 +167,7 @@ def process_single_sample(
         >>> print(f"Viewer is looking at: {winner_id}")
     """
     # Import here to avoid circular imports
-    from view_arc.api import find_largest_obstacle
+    from view_arc.obstacle.api import find_largest_obstacle
 
     # Validate inputs
     if not isinstance(sample, ViewerSample):

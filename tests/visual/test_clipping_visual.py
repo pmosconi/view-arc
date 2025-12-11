@@ -24,7 +24,7 @@ try:
 except ImportError:
     HAS_MATPLOTLIB = False
 
-from view_arc.clipping import (
+from view_arc.obstacle.clipping import (
     is_valid_polygon,
     compute_bounding_box,
     clip_polygon_halfplane,
@@ -1009,7 +1009,7 @@ class TestWedgeClippingVisual:
         # Step 3: After circle clip (final result)
         ax = axes[1, 1]
         self._setup_axes(ax, f"Step 3: Circle clip at r = {radius}")
-        from view_arc.clipping import clip_polygon_circle
+        from view_arc.obstacle.clipping import clip_polygon_circle
         step3 = clip_polygon_circle(step2, radius)
         circle = mpatches.Circle((0, 0), radius, fill=False,
                      edgecolor='purple', linewidth=2, linestyle='--',

@@ -21,8 +21,8 @@ from typing import Any, Literal
 import numpy as np
 from numpy.typing import NDArray
 
-from view_arc.clipping import is_valid_polygon
-from view_arc.geometry import validate_and_get_direction_angle
+from view_arc.obstacle.clipping import is_valid_polygon
+from view_arc.obstacle.geometry import validate_and_get_direction_angle
 
 
 class ValidationError(Exception):

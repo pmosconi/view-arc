@@ -6,7 +6,7 @@ import numpy as np
 import pytest
 from numpy.typing import NDArray
 
-from view_arc.api import find_largest_obstacle, ObstacleResult
+from view_arc.obstacle.api import find_largest_obstacle, ObstacleResult
 
 
 # =============================================================================

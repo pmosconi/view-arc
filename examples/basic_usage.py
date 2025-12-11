@@ -15,7 +15,7 @@ import numpy as np
 from numpy.typing import NDArray
 
 from view_arc import find_largest_obstacle
-from view_arc.api import ObstacleResult
+from view_arc.obstacle.api import ObstacleResult
 
 SceneTuple = Tuple[
     NDArray[np.float32],

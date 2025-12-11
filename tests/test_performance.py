@@ -11,7 +11,7 @@ import numpy as np
 from numpy.typing import NDArray
 import pytest
 
-from view_arc.api import find_largest_obstacle
+from view_arc.obstacle.api import find_largest_obstacle
 
 
 def generate_random_polygon(

@@ -13,7 +13,7 @@ import pytest
 import numpy as np
 from numpy.testing import assert_allclose, assert_array_almost_equal
 
-from view_arc.sweep import (
+from view_arc.obstacle.sweep import (
     AngularEvent,
     IntervalResult,
     get_active_edges,

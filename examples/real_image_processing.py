@@ -22,8 +22,8 @@ from numpy.typing import NDArray
 from skimage import color, io, util
 
 from view_arc import find_largest_obstacle
-from view_arc.api import ObstacleResult
-from view_arc.visualize import draw_complete_visualization, HAS_CV2
+from view_arc.obstacle.api import ObstacleResult
+from view_arc.obstacle.visualize import draw_complete_visualization, HAS_CV2
 
 EXAMPLES_DIR = Path(__file__).resolve().parent
 PROJECT_ROOT = EXAMPLES_DIR.parent

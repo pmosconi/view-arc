@@ -7,14 +7,14 @@ from typing import List, Optional, Tuple, Dict, Any
 import numpy as np
 from numpy.typing import NDArray
 
-from view_arc.geometry import (
+from view_arc.obstacle.geometry import (
     normalize_angle,
     validate_and_get_direction_angle,
     to_viewer_frame,
     to_polar,
 )
-from view_arc.clipping import clip_polygon_to_wedge, is_valid_polygon
-from view_arc.sweep import build_events, compute_coverage, IntervalResult
+from view_arc.obstacle.clipping import clip_polygon_to_wedge, is_valid_polygon
+from view_arc.obstacle.sweep import build_events, compute_coverage, IntervalResult
 
 
 @dataclass

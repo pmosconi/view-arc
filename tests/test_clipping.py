@@ -15,7 +15,7 @@ import pytest
 import numpy as np
 from numpy.testing import assert_allclose, assert_array_almost_equal
 
-from view_arc.clipping import (
+from view_arc.obstacle.clipping import (
     is_valid_polygon,
     compute_bounding_box,
     clip_polygon_halfplane,

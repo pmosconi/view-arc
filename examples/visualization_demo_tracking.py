@@ -27,7 +27,7 @@ from view_arc.tracking import (
     ViewerSample,
     process_single_sample,
 )
-from view_arc.visualize import draw_complete_visualization, HAS_CV2
+from view_arc.obstacle.visualize import draw_complete_visualization, HAS_CV2
 
 SceneTuple = Tuple[
     NDArray[np.uint8],

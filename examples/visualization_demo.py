@@ -18,7 +18,7 @@ import numpy as np
 from numpy.typing import NDArray
 
 from view_arc import find_largest_obstacle
-from view_arc.visualize import draw_complete_visualization, HAS_CV2
+from view_arc.obstacle.visualize import draw_complete_visualization, HAS_CV2
 
 SceneTuple = Tuple[
     NDArray[np.uint8],

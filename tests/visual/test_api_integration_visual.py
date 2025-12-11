@@ -35,7 +35,7 @@ if TYPE_CHECKING:
     from matplotlib.axes import Axes
     from matplotlib.figure import Figure
 
-from view_arc.api import find_largest_obstacle, ObstacleResult
+from view_arc.obstacle.api import find_largest_obstacle, ObstacleResult
 
 
 # Output directory for visual test results

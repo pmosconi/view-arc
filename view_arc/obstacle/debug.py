@@ -11,7 +11,7 @@ import logging
 import numpy as np
 from numpy.typing import NDArray
 
-from view_arc.sweep import AngularEvent, IntervalResult
+from view_arc.obstacle.sweep import AngularEvent, IntervalResult
 
 
 # Configure module-level logger

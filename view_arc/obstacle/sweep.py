@@ -7,7 +7,7 @@ from typing import List, Tuple, Dict, Optional
 import numpy as np
 from numpy.typing import NDArray
 
-from view_arc.geometry import normalize_angle, to_polar, intersect_ray_segment, handle_angle_discontinuity
+from view_arc.obstacle.geometry import normalize_angle, to_polar, intersect_ray_segment, handle_angle_discontinuity
 
 
 @dataclass(order=True)

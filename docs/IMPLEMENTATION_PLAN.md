@@ -3,6 +3,32 @@
 ## Overview
 Implement the obstacle detection algorithm following a test-driven development approach, building from low-level geometry utilities up to the complete API.
 
+## Package Structure
+
+The `view_arc` package is organized as follows:
+
+```
+view_arc/
+    __init__.py              # Main public API (compute_attention_seconds, find_largest_obstacle)
+    obstacle/                # Low-level obstacle detection
+        __init__.py          # Re-exports obstacle detection API
+        api.py               # find_largest_obstacle, ObstacleResult
+        geometry.py          # Coordinate transforms, polar conversion
+        clipping.py          # Polygon clipping operations
+        sweep.py             # Angular sweep algorithm
+        debug.py             # Debug utilities
+        visualize.py         # OpenCV visualization
+    tracking/                # Temporal attention tracking
+        __init__.py          # Re-exports tracking API
+        dataclasses.py       # ViewerSample, AOI, TrackingResult
+        validation.py        # Input validation
+        algorithm.py         # compute_attention_seconds, process_single_sample
+```
+
+The main entry point is `view_arc.compute_attention_seconds()` for tracking use cases.
+For direct obstacle detection, use `view_arc.find_largest_obstacle()` or
+`view_arc.obstacle.find_largest_obstacle()`.
+
 ## Phase 1: Core Geometry Foundation (Days 1-2)
 
 ### Step 1.1: Geometry Utilities - Basic Operations

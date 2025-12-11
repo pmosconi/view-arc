@@ -16,7 +16,7 @@ import pytest
 import numpy as np
 from numpy.testing import assert_allclose, assert_array_almost_equal
 
-from view_arc.geometry import (
+from view_arc.obstacle.geometry import (
     normalize_angle,
     to_viewer_frame,
     to_polar,

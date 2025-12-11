@@ -39,13 +39,13 @@ try:
 except ImportError:
     HAS_MATPLOTLIB = False
 
-from view_arc.visualize import (
+from view_arc.obstacle.visualize import (
     draw_wedge_overlay,
     draw_obstacle_contours,
     draw_angular_intervals,
     draw_complete_visualization,
 )
-from view_arc.api import find_largest_obstacle
+from view_arc.obstacle.api import find_largest_obstacle
 
 
 # Output directory for visual test results

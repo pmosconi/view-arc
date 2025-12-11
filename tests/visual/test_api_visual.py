@@ -28,9 +28,9 @@ try:
 except ImportError:
     HAS_MATPLOTLIB = False
 
-from view_arc.api import find_largest_obstacle, ObstacleResult
-from view_arc.geometry import to_viewer_frame, to_polar, validate_and_get_direction_angle
-from view_arc.clipping import clip_polygon_to_wedge
+from view_arc.obstacle.api import find_largest_obstacle, ObstacleResult
+from view_arc.obstacle.geometry import to_viewer_frame, to_polar, validate_and_get_direction_angle
+from view_arc.obstacle.clipping import clip_polygon_to_wedge
 
 
 # Output directory for visual test results

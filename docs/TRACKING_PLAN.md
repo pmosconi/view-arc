@@ -29,13 +29,35 @@ Extend the view arc obstacle detection system to accumulate "attention seconds" 
 ## Phase 1: Data Structures & Input Validation (Day 1)
 
 > **Implementation Note**: Before implementing new validation or utility functions, 
-> check for existing helpers in `view_arc.geometry`, `view_arc.clipping`, and 
-> `view_arc.visualize`. Reuse these where possible to avoid duplicated logic:
-> - `validate_and_get_direction_angle()` in `geometry.py` - validates unit vectors
-> - `is_valid_polygon()` in `clipping.py` - validates polygon vertex counts
-> - Coordinate transforms and polar conversions in `geometry.py`
+> check for existing helpers in `view_arc.obstacle.geometry`, `view_arc.obstacle.clipping`, and 
+> `view_arc.obstacle.visualize`. Reuse these where possible to avoid duplicated logic:
+> - `validate_and_get_direction_angle()` in `obstacle/geometry.py` - validates unit vectors
+> - `is_valid_polygon()` in `obstacle/clipping.py` - validates polygon vertex counts
+> - Coordinate transforms and polar conversions in `obstacle/geometry.py`
 
-### Module Structure
+### Package Structure
+
+The `view_arc` package is organized with tracking as the primary API:
+
+```
+view_arc/
+    __init__.py              # Main public API (compute_attention_seconds, etc.)
+    obstacle/                # Low-level obstacle detection
+        __init__.py          # Re-exports obstacle detection API
+        api.py               # find_largest_obstacle, ObstacleResult
+        geometry.py          # Coordinate transforms, polar conversion
+        clipping.py          # Polygon clipping operations
+        sweep.py             # Angular sweep algorithm
+        debug.py             # Debug utilities
+        visualize.py         # OpenCV visualization
+    tracking/                # Temporal attention tracking
+        __init__.py          # Re-exports tracking API
+        dataclasses.py       # ViewerSample, AOI, TrackingResult
+        validation.py        # Input validation
+        algorithm.py         # compute_attention_seconds, process_single_sample
+```
+
+### Module Structure (tracking subpackage)
 
 The tracking functionality is organized into a subpackage `view_arc/tracking/`:
 - `view_arc/tracking/dataclasses.py` - Core data structures (ViewerSample, AOI, SessionConfig, etc.)
@@ -603,11 +625,11 @@ examples/
 
 ```
 view_arc/
-  __init__.py      # Export new functions: compute_attention_seconds, AOI, TrackingResult
-  api.py           # Add compute_attention_seconds() re-export (optional)
-    visualize.py     # Add heatmap, timeline, replay functions
+  __init__.py          # Export new functions: compute_attention_seconds, AOI, TrackingResult
+  obstacle/
+    visualize.py       # Add heatmap, timeline, replay functions (optional)
     
-README.md            # Add tracking feature documentation
+README.md              # Add tracking feature documentation
 ```
 
 ---
@@ -671,7 +693,7 @@ result = compute_attention_seconds(samples=data, aois=aois)
 
 ### Visualization
 ```python
-from view_arc import draw_attention_heatmap
+from view_arc.obstacle.visualize import draw_attention_heatmap
 
 annotated_image = draw_attention_heatmap(
     image=background_image,

@@ -10,8 +10,8 @@ import numpy as np
 import pytest
 from numpy.typing import NDArray
 
-from view_arc.api import find_largest_obstacle, ObstacleResult, IntervalBreakdown
-from view_arc.debug import (
+from view_arc.obstacle.api import find_largest_obstacle, ObstacleResult, IntervalBreakdown
+from view_arc.obstacle.debug import (
     DebugResult,
     ClipResult,
     IntervalDebugInfo,
@@ -26,7 +26,7 @@ from view_arc.debug import (
     setup_debug_logging,
     disable_debug_logging,
 )
-from view_arc.sweep import AngularEvent
+from view_arc.obstacle.sweep import AngularEvent
 
 
 # =============================================================================
@@ -694,7 +694,7 @@ class TestLoggingSetup:
 
     def test_setup_logging_multiple_times_no_duplicate_handlers(self) -> None:
         """Test that calling setup_debug_logging multiple times doesn't stack handlers."""
-        from view_arc.debug import logger
+        from view_arc.obstacle.debug import logger
         
         # Call setup multiple times
         setup_debug_logging(logging.DEBUG)

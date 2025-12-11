@@ -26,7 +26,7 @@ try:
 except ImportError:
     HAS_MATPLOTLIB = False
 
-from view_arc.sweep import (
+from view_arc.obstacle.sweep import (
     AngularEvent,
     IntervalResult,
     get_active_edges,
@@ -34,7 +34,7 @@ from view_arc.sweep import (
     resolve_interval,
     compute_coverage,
 )
-from view_arc.geometry import to_polar, intersect_ray_segment
+from view_arc.obstacle.geometry import to_polar, intersect_ray_segment
 
 
 # Output directory for visual test results
