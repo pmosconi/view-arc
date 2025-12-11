@@ -195,11 +195,36 @@ class AOIResult:
         return None
 
 
+# =============================================================================
+# Sampling Assumptions (Step 2.4)
+# =============================================================================
+
+# These assumptions are documented in the module docstring, README, and SessionConfig.
+# Exposing them as a tuple allows downstream analytics to know the data quality contract.
+SAMPLING_ASSUMPTIONS: tuple[str, ...] = (
+    "Samples arrive at a fixed 1 Hz cadence (one sample per second)",
+    "Each sample represents exactly 1 second of viewing time",
+    "Timestamps, when provided, are already sorted upstream",
+    "AOI contours remain fixed in image coordinate space",
+    "Each batch tracks a single viewer",
+)
+"""Tuple of sampling assumptions that apply to all tracking sessions.
+
+These invariants are guaranteed by upstream ingestion and are NOT re-validated
+at runtime. Downstream analytics can inspect this tuple to understand the
+data quality contract without scanning logs.
+"""
+
+
 @dataclass
 class TrackingResult:
     """Complete result of a tracking session.
 
     Contains aggregated results for all AOIs and session-level statistics.
+
+    The `assumptions` property exposes the sampling invariants that were applied
+    during tracking, allowing downstream consumers to know the data quality
+    contract without scanning logs.
 
     Attributes:
         aoi_results: Dictionary mapping AOI IDs to their AOIResult
@@ -323,6 +348,19 @@ class TrackingResult:
             List of AOI identifiers
         """
         return list(self.aoi_results.keys())
+
+    @property
+    def assumptions(self) -> tuple[str, ...]:
+        """Sampling assumptions applied during tracking.
+
+        These invariants were guaranteed by upstream ingestion and were NOT
+        re-validated at runtime. Downstream analytics can inspect this tuple
+        to understand the data quality contract.
+
+        Returns:
+            Tuple of strings describing the sampling assumptions.
+        """
+        return SAMPLING_ASSUMPTIONS
 
 
 # =============================================================================
