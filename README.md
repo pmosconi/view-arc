@@ -65,11 +65,15 @@ Run every example with ``uv run python <script>`` so that dependencies resolve i
 
 ## Tracking Assumptions
 
-Temporal attention tracking (see `docs/TRACKING_PLAN.md`) relies on two upstream guarantees that we do **not** re-validate at runtime:
-- Viewer samples arrive exactly at 1 Hz, so each accepted hit represents one second of attention.
-- Viewer positions, directions, and AOI contours all share the same immutable image-coordinate space for the entire batch.
+Temporal attention tracking (see `docs/TRACKING_PLAN.md`) relies on the following upstream guarantees that we do **not** re-validate at runtime:
 
-Any pipeline feeding `compute_attention_seconds()` must uphold these invariants to keep the reported metrics meaningful.
+1. **1 Hz cadence**: Viewer samples arrive exactly at 1 Hz, so each accepted hit represents one second of attention.
+2. **One second per sample**: Each sample represents exactly one second of viewing time—no interpolation is performed.
+3. **Monotonic timestamps**: Timestamps, when provided, are already sorted upstream; we consume them as-is.
+4. **Fixed coordinate space**: Viewer positions, directions, and AOI contours all share the same immutable image-coordinate space for the entire batch.
+5. **Single viewer**: Each batch tracks a single viewer; multi-viewer aggregation happens outside this API.
+
+Any pipeline feeding `compute_attention_seconds()` must uphold these invariants to keep the reported metrics meaningful. You can also inspect `TrackingResult.assumptions` or the `SAMPLING_ASSUMPTIONS` constant to see these contracts programmatically.
 
 ## Type Checking
 
