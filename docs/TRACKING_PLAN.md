@@ -35,8 +35,16 @@ Extend the view arc obstacle detection system to accumulate "attention seconds" 
 > - `is_valid_polygon()` in `clipping.py` - validates polygon vertex counts
 > - Coordinate transforms and polar conversions in `geometry.py`
 
+### Module Structure
+
+The tracking functionality is organized into a subpackage `view_arc/tracking/`:
+- `view_arc/tracking/dataclasses.py` - Core data structures (ViewerSample, AOI, SessionConfig, etc.)
+- `view_arc/tracking/validation.py` - Input validation functions
+- `view_arc/tracking/algorithm.py` - Core tracking algorithm (process_single_sample, compute_attention_seconds)
+- `view_arc/tracking/__init__.py` - Re-exports all public symbols
+
 ### Step 1.1: Core Data Structures
-**Implementation in `view_arc/tracking.py`:**
+**Implementation in `view_arc/tracking/dataclasses.py`:**
 - `ViewerSample` dataclass - single observation (position, direction, timestamp)
 - `AOI` dataclass - area of interest with ID and contour
 - `AOIResult` dataclass - per-AOI result with hit count and observation details
@@ -85,10 +93,11 @@ class TrackingResult:
 ---
 
 ### Step 1.2: Input Validation Functions
-**Implementation in `view_arc/tracking.py`:**
+**Implementation in `view_arc/tracking/validation.py`:**
 - `validate_viewer_samples()` - check sample array integrity
 - `validate_aois()` - check AOI list, ensure unique IDs
 - `validate_tracking_params()` - validate FOV, max_range parameters
+- `normalize_sample_input()` - convert any input format to ViewerSample list
 
 **Tests to Create:**
 - `tests/test_tracking_validation.py`:
@@ -107,7 +116,7 @@ class TrackingResult:
 ---
 
 ### Step 1.3: Session Configuration Schema 
-**Implementation in `view_arc/tracking.py`:**
+**Implementation in `view_arc/tracking/dataclasses.py`:**
 - `SessionConfig` dataclass gathers immutable acquisition metadata:
   - `session_id: str`
   - `frame_size: tuple[int, int] | None` (image width/height for bounds checks)
@@ -130,19 +139,23 @@ class TrackingResult:
 ## Phase 2: Core Tracking Algorithm (Days 2-3)
 
 ### Step 2.1: Single-Sample Processing Wrapper
-**Implementation in `view_arc/tracking.py`:**
+**Implementation in `view_arc/tracking/algorithm.py`:**
 - `process_single_sample()` - wrapper around `find_largest_obstacle()` that:
   - Accepts a ViewerSample and list of AOIs
   - Returns the winning AOI ID (or None if no winner)
   - Optionally returns detailed result for debugging
+- `SingleSampleResult` dataclass - detailed result for debugging
+- `AOIIntervalBreakdown` dataclass - interval details with AOI IDs
 
 **Tests to Create:**
-- `tests/test_tracking_algorithm.py`:
+- `tests/test_tracking_process_single_sample.py`:
   - `test_process_single_sample_one_aoi_visible()` - single AOI in view
   - `test_process_single_sample_multiple_aoi()` - returns winner
   - `test_process_single_sample_no_aoi_visible()` - returns None
   - `test_process_single_sample_all_aoi_outside_range()` - max_range filtering
   - `test_process_single_sample_preserves_aoi_id()` - ID correctly mapped
+  - `test_process_single_sample_return_details()` - detailed result structure
+  - `test_process_single_sample_validation()` - input validation
 
 **Validation:**
 - Wrapper correctly delegates to existing API
@@ -151,13 +164,14 @@ class TrackingResult:
 ---
 
 ### Step 2.2: Batch Processing Function
-**Implementation in `view_arc/tracking.py`:**
+**Implementation in `view_arc/tracking/algorithm.py`:**
 - `compute_attention_seconds()` - main entry point that:
   - Accepts batch of ViewerSamples and list of AOIs
   - Iterates through samples, calling `find_largest_obstacle()` for each
   - Accumulates hit counts per AOI
   - Assumes each processed sample represents exactly 1 second of attention
-  - Returns `TrackingResult` with complete statistics and embedded `SessionConfig`
+  - Returns `TrackingResultWithConfig` with complete statistics and embedded `SessionConfig`
+- `TrackingResultWithConfig` dataclass - extends TrackingResult with session config
 
 **Function Signature:**
 ```python
@@ -168,11 +182,11 @@ def compute_attention_seconds(
     max_range: float = 500.0,
     sample_interval: float = 1.0,
     session_config: SessionConfig | None = None,
-) -> TrackingResult:
+) -> TrackingResultWithConfig:
 ```
 
 **Tests to Create:**
-- `tests/test_tracking_algorithm.py` (continued):
+- `tests/test_tracking_compute_attention.py`:
   - `test_compute_attention_single_sample()` - trivial case
   - `test_compute_attention_all_same_aoi()` - viewer stares at one AOI
   - `test_compute_attention_alternating_aois()` - viewer looks left/right
@@ -181,6 +195,9 @@ def compute_attention_seconds(
   - `test_compute_attention_hit_count_accuracy()` - verify counts
   - `test_compute_attention_all_aois_represented()` - all AOIs in result
   - `test_compute_attention_timestamps_recorded()` - hit indices tracked
+  - `test_compute_attention_session_config()` - session config embedding
+  - `test_compute_attention_numpy_input()` - numpy array input format
+  - `test_compute_attention_frame_size_validation()` - bounds checking
 
 **Validation:**
 - Total hits across AOIs ≤ total samples
@@ -191,19 +208,17 @@ def compute_attention_seconds(
 ---
 
 ### Step 2.3: Convenience Input Formats
-**Implementation in `view_arc/tracking.py`:**
+**Implementation in `view_arc/tracking/validation.py`:**
 - Support multiple input formats for ergonomic API:
   - List of ViewerSample objects
-  - Tuple of (positions_array, directions_array)
   - Single numpy array of shape (N, 4) for [x, y, dx, dy]
 - `normalize_sample_input()` - convert any format to internal representation
 
 **Tests to Create:**
-- `tests/test_tracking_algorithm.py` (continued):
-  - `test_input_format_sample_list()` - list of ViewerSample
-  - `test_input_format_tuple_arrays()` - (positions, directions) tuple
-  - `test_input_format_single_array()` - shape (N, 4) array
-  - `test_input_format_mixed_types()` - numpy vs list positions
+- `tests/test_tracking_compute_attention.py` (TestComputeAttentionNumpyInput class):
+  - `test_numpy_array_shape_n4()` - shape (N, 4) array accepted
+  - `test_numpy_array_direction_normalized()` - directions auto-normalized
+  - `test_numpy_array_matches_list_input()` - equivalent results
 
 **Validation:**
 - All formats produce identical results
@@ -212,7 +227,7 @@ def compute_attention_seconds(
 ---
 
 ### Step 2.4: Sampling Assumptions Documentation (**UPDATED**)
-**Implementation in `view_arc/tracking.py` + docs:**
+**Implementation in `view_arc/tracking/__init__.py` + docs:**
 - Clearly document (module docstrings, README snippet, and `SessionConfig`) that upstream ingestion guarantees monotonic timestamps and a strict 1 Hz cadence. Our tracking loop therefore treats every accepted sample as 1 second without extra checks.
 - Ensure `TrackingResult` exposes `assumptions: tuple[str, ...]` or similar metadata so downstream analytics always know the data quality contract without per-sample flags.
 
@@ -228,7 +243,7 @@ def compute_attention_seconds(
 ## Phase 3: Result Analysis & Reporting (Day 4)
 
 ### Step 3.1: Result Aggregation Methods
-**Implementation in `view_arc/tracking.py`:**
+**Implementation in `view_arc/tracking/dataclasses.py`:**
 - `TrackingResult` methods:
   - `get_top_aois(n: int)` - return top N AOIs by hit count
   - `get_attention_distribution()` - percentage of time per AOI
