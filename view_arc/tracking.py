@@ -990,3 +990,127 @@ def process_single_sample(
         all_distances=all_distances,
         interval_details=interval_details,
     )
+
+
+# =============================================================================
+# Batch Processing Function (Step 2.2)
+# =============================================================================
+
+
+@dataclass
+class TrackingResultWithConfig(TrackingResult):
+    """TrackingResult extended with embedded SessionConfig.
+
+    Contains all the fields from TrackingResult plus the session configuration
+    that was used for this tracking run.
+
+    Attributes:
+        session_config: The SessionConfig used for this tracking session,
+            or None if not provided
+    """
+
+    session_config: SessionConfig | None = None
+
+
+def compute_attention_seconds(
+    samples: list[ViewerSample],
+    aois: list[AOI],
+    fov_deg: float = 90.0,
+    max_range: float = 500.0,
+    sample_interval: float = 1.0,
+    session_config: SessionConfig | None = None,
+) -> TrackingResultWithConfig:
+    """Compute accumulated attention seconds for each AOI from a batch of samples.
+
+    This is the main entry point for batch processing. It iterates through all
+    viewer samples, determines which AOI (if any) is being viewed at each sample,
+    and accumulates hit counts per AOI.
+
+    Each processed sample is assumed to represent exactly `sample_interval` seconds
+    of viewing time (default 1 second at 1 Hz sampling rate).
+
+    Args:
+        samples: List of ViewerSample objects representing viewer observations.
+            Can also accept a numpy array of shape (N, 4) for [x, y, dx, dy].
+        aois: List of AOI objects defining the areas of interest to track.
+        fov_deg: Field of view in degrees (default 90.0)
+        max_range: Maximum detection range in pixels (default 500.0)
+        sample_interval: Time interval per sample in seconds (default 1.0).
+            Each hit adds this many seconds to the AOI's total_attention_seconds.
+        session_config: Optional session configuration for metadata tracking.
+            If provided, it is embedded in the result for downstream analytics.
+
+    Returns:
+        TrackingResultWithConfig containing:
+        - aoi_results: Dict mapping AOI IDs to AOIResult objects with hit counts
+        - total_samples: Total number of samples processed
+        - samples_with_hits: Number of samples where any AOI was visible
+        - samples_no_winner: Number of samples where no AOI was in view
+        - session_config: The SessionConfig used (or None if not provided)
+
+    Raises:
+        ValidationError: If samples is not a valid list of ViewerSamples
+        ValidationError: If aois contains invalid or duplicate IDs
+        ValidationError: If fov_deg, max_range, or sample_interval are invalid
+
+    Invariants:
+        - total_samples == len(samples)
+        - samples_with_hits + samples_no_winner == total_samples
+        - sum(aoi_result.hit_count for all AOIs) == samples_with_hits
+        - All AOI IDs present in result (even with hit_count=0)
+
+    Example:
+        >>> samples = [
+        ...     ViewerSample(position=(100.0, 100.0), direction=(0.0, 1.0)),
+        ...     ViewerSample(position=(100.0, 100.0), direction=(0.0, 1.0)),
+        ...     ViewerSample(position=(100.0, 100.0), direction=(1.0, 0.0)),
+        ... ]
+        >>> aois = [
+        ...     AOI(id="shelf_A", contour=np.array([[90, 150], [110, 150], [100, 170]])),
+        ...     AOI(id="shelf_B", contour=np.array([[150, 90], [170, 90], [160, 110]])),
+        ... ]
+        >>> result = compute_attention_seconds(samples, aois)
+        >>> print(f"shelf_A received {result.get_hit_count('shelf_A')} seconds of attention")
+    """
+    # Validate inputs
+    validate_viewer_samples(samples)
+    validate_aois(aois)
+    validate_tracking_params(fov_deg, max_range, sample_interval)
+
+    # Initialize AOI results for all AOIs (even those with 0 hits)
+    aoi_results: dict[str | int, AOIResult] = {}
+    for aoi in aois:
+        aoi_results[aoi.id] = AOIResult(aoi_id=aoi.id)
+
+    # Track counters
+    total_samples = len(samples)
+    samples_with_hits = 0
+    samples_no_winner = 0
+
+    # Process each sample
+    for sample_index, sample in enumerate(samples):
+        # Get the winning AOI ID for this sample
+        winning_id = process_single_sample(
+            sample=sample,
+            aois=aois,
+            fov_deg=fov_deg,
+            max_range=max_range,
+            return_details=False,
+        )
+
+        if winning_id is not None:
+            # Record hit for this AOI
+            samples_with_hits += 1
+            # winning_id is guaranteed to be str | int when not None
+            assert isinstance(winning_id, (str, int))  # for type checker
+            aoi_results[winning_id].add_hit(sample_index, sample_interval)
+        else:
+            samples_no_winner += 1
+
+    return TrackingResultWithConfig(
+        aoi_results=aoi_results,
+        total_samples=total_samples,
+        samples_with_hits=samples_with_hits,
+        samples_no_winner=samples_no_winner,
+        session_config=session_config,
+    )

@@ -27,11 +27,13 @@ from view_arc.tracking import (
     AOI,
     AOIResult,
     TrackingResult,
+    TrackingResultWithConfig,
     SessionConfig,
     ValidationError,
     SingleSampleResult,
     AOIIntervalBreakdown,
     process_single_sample,
+    compute_attention_seconds,
 )
 
 __all__ = [
@@ -44,11 +46,13 @@ __all__ = [
     'AOI',
     'AOIResult',
     'TrackingResult',
+    'TrackingResultWithConfig',
     'SessionConfig',
     'ValidationError',
     'SingleSampleResult',
     'AOIIntervalBreakdown',
     'process_single_sample',
+    'compute_attention_seconds',
     # Debug utilities
     'DebugResult',
     'ClipResult',
