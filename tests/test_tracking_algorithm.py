@@ -1114,10 +1114,10 @@ class TestComputeAttentionValidation:
     """Test input validation for compute_attention_seconds."""
 
     def test_invalid_samples_type(self) -> None:
-        """Non-list samples should raise ValidationError."""
+        """Non-list/non-array samples should raise ValidationError."""
         aoi = AOI(id="shelf", contour=make_square_contour((100.0, 150.0), half_size=15.0))
 
-        with pytest.raises(ValidationError, match="samples must be a list"):
+        with pytest.raises(ValidationError, match="samples must be a list or numpy array"):
             compute_attention_seconds("not a list", [aoi])  # type: ignore[arg-type]
 
     def test_invalid_aois_type(self) -> None:
@@ -1159,3 +1159,238 @@ class TestComputeAttentionValidation:
 
         with pytest.raises(ValidationError, match="sample_interval"):
             compute_attention_seconds([sample], [aoi], sample_interval=-1.0)
+
+
+# =============================================================================
+# Tests: compute_attention_seconds() - NumPy Array Input (Step 2.3)
+# =============================================================================
+
+
+class TestComputeAttentionNumpyInput:
+    """Test compute_attention_seconds with numpy array input format."""
+
+    def test_numpy_array_shape_n4(self) -> None:
+        """NumPy array of shape (N, 4) should be accepted."""
+        # Array format: [x, y, dx, dy]
+        samples = np.array([
+            [100.0, 100.0, 0.0, 1.0],
+            [100.0, 100.0, 0.0, 1.0],
+            [100.0, 100.0, 1.0, 0.0],
+        ])
+        aoi = AOI(id="shelf", contour=make_square_contour((100.0, 150.0), half_size=20.0))
+
+        result = compute_attention_seconds(samples, [aoi])
+
+        assert result.total_samples == 3
+        # First two samples look up (at the shelf), third looks right
+        assert result.samples_with_hits == 2
+        assert result.get_hit_count("shelf") == 2
+
+    def test_numpy_array_direction_normalized(self) -> None:
+        """Non-unit direction vectors in numpy input should be normalized."""
+        # Direction vectors are not unit vectors - should be normalized
+        samples = np.array([
+            [100.0, 100.0, 0.0, 2.0],   # points up with mag 2
+            [100.0, 100.0, 3.0, 0.0],   # points right with mag 3
+        ])
+        aoi_up = AOI(id="up", contour=make_square_contour((100.0, 150.0), half_size=15.0))
+        aoi_right = AOI(id="right", contour=make_square_contour((150.0, 100.0), half_size=15.0))
+
+        result = compute_attention_seconds(samples, [aoi_up, aoi_right])
+
+        assert result.get_hit_count("up") == 1
+        assert result.get_hit_count("right") == 1
+
+    def test_numpy_array_empty(self) -> None:
+        """Empty numpy array should produce valid empty result."""
+        samples = np.array([]).reshape(0, 4)
+        aoi = AOI(id="shelf", contour=make_square_contour((100.0, 150.0), half_size=15.0))
+
+        result = compute_attention_seconds(samples, [aoi])
+
+        assert result.total_samples == 0
+        assert result.samples_with_hits == 0
+        assert result.get_hit_count("shelf") == 0
+
+    def test_numpy_array_single_sample(self) -> None:
+        """Single sample in numpy array should work."""
+        samples = np.array([[100.0, 100.0, 0.0, 1.0]])
+        aoi = AOI(id="shelf", contour=make_square_contour((100.0, 150.0), half_size=20.0))
+
+        result = compute_attention_seconds(samples, [aoi])
+
+        assert result.total_samples == 1
+        assert result.get_hit_count("shelf") == 1
+
+    def test_numpy_array_wrong_dimensions(self) -> None:
+        """1D numpy array should raise ValidationError."""
+        samples = np.array([100.0, 100.0, 0.0, 1.0])  # 1D, not 2D
+
+        with pytest.raises(ValidationError, match="2D array"):
+            compute_attention_seconds(samples, [])
+
+    def test_numpy_array_wrong_columns(self) -> None:
+        """NumPy array with wrong number of columns should raise ValidationError."""
+        samples = np.array([
+            [100.0, 100.0, 0.0],  # Only 3 columns
+        ])
+
+        with pytest.raises(ValidationError, match=r"shape \(N, 4\)"):
+            compute_attention_seconds(samples, [])
+
+    def test_numpy_array_zero_direction(self) -> None:
+        """NumPy array with zero-magnitude direction should raise ValidationError."""
+        samples = np.array([
+            [100.0, 100.0, 0.0, 0.0],  # Zero direction vector
+        ])
+
+        with pytest.raises(ValidationError, match="zero-magnitude"):
+            compute_attention_seconds(samples, [])
+
+    def test_numpy_array_matches_list_input(self) -> None:
+        """NumPy array input should produce same result as list of ViewerSamples."""
+        # Create equivalent inputs
+        list_samples = [
+            ViewerSample(position=(100.0, 100.0), direction=(0.0, 1.0)),
+            ViewerSample(position=(100.0, 100.0), direction=(1.0, 0.0)),
+            ViewerSample(position=(100.0, 100.0), direction=(0.0, 1.0)),
+        ]
+        numpy_samples = np.array([
+            [100.0, 100.0, 0.0, 1.0],
+            [100.0, 100.0, 1.0, 0.0],
+            [100.0, 100.0, 0.0, 1.0],
+        ])
+        aoi = AOI(id="shelf", contour=make_square_contour((100.0, 150.0), half_size=20.0))
+
+        result_list = compute_attention_seconds(list_samples, [aoi])
+        result_numpy = compute_attention_seconds(numpy_samples, [aoi])
+
+        assert result_list.total_samples == result_numpy.total_samples
+        assert result_list.samples_with_hits == result_numpy.samples_with_hits
+        assert result_list.get_hit_count("shelf") == result_numpy.get_hit_count("shelf")
+
+
+# =============================================================================
+# Tests: compute_attention_seconds() - Frame Size Validation
+# =============================================================================
+
+
+class TestComputeAttentionFrameSizeValidation:
+    """Test that frame_size from SessionConfig is used for bounds checking."""
+
+    def test_frame_size_from_session_config_validates_positions(self) -> None:
+        """SessionConfig with frame_size should validate sample positions."""
+        config = SessionConfig(
+            session_id="test-bounds",
+            frame_size=(640, 480),
+        )
+        # Sample position outside frame bounds
+        samples = [
+            ViewerSample(position=(700.0, 100.0), direction=(0.0, 1.0)),  # x > 640
+        ]
+        aoi = AOI(id="shelf", contour=make_square_contour((100.0, 150.0), half_size=15.0))
+
+        with pytest.raises(ValidationError, match="out of bounds"):
+            compute_attention_seconds(samples, [aoi], session_config=config)
+
+    def test_frame_size_y_out_of_bounds(self) -> None:
+        """Sample with y position out of frame should raise ValidationError."""
+        config = SessionConfig(
+            session_id="test-bounds",
+            frame_size=(640, 480),
+        )
+        samples = [
+            ViewerSample(position=(100.0, 500.0), direction=(0.0, 1.0)),  # y > 480
+        ]
+        aoi = AOI(id="shelf", contour=make_square_contour((100.0, 150.0), half_size=15.0))
+
+        with pytest.raises(ValidationError, match="out of bounds"):
+            compute_attention_seconds(samples, [aoi], session_config=config)
+
+    def test_frame_size_negative_position(self) -> None:
+        """Sample with negative position should raise ValidationError."""
+        config = SessionConfig(
+            session_id="test-bounds",
+            frame_size=(640, 480),
+        )
+        samples = [
+            ViewerSample(position=(-10.0, 100.0), direction=(0.0, 1.0)),  # x < 0
+        ]
+        aoi = AOI(id="shelf", contour=make_square_contour((100.0, 150.0), half_size=15.0))
+
+        with pytest.raises(ValidationError, match="out of bounds"):
+            compute_attention_seconds(samples, [aoi], session_config=config)
+
+    def test_frame_size_valid_positions_pass(self) -> None:
+        """Samples within frame bounds should pass validation."""
+        config = SessionConfig(
+            session_id="test-bounds",
+            frame_size=(640, 480),
+        )
+        samples = [
+            ViewerSample(position=(100.0, 100.0), direction=(0.0, 1.0)),
+            ViewerSample(position=(639.0, 479.0), direction=(0.0, 1.0)),  # edge of frame
+            ViewerSample(position=(0.0, 0.0), direction=(0.0, 1.0)),  # corner
+        ]
+        aoi = AOI(id="shelf", contour=make_square_contour((100.0, 150.0), half_size=20.0))
+
+        # Should not raise
+        result = compute_attention_seconds(samples, [aoi], session_config=config)
+        assert result.total_samples == 3
+
+    def test_no_frame_size_skips_bounds_check(self) -> None:
+        """Without frame_size, out-of-bounds positions are allowed."""
+        # No session config
+        samples = [
+            ViewerSample(position=(1000.0, 1000.0), direction=(0.0, 1.0)),
+        ]
+        aoi = AOI(id="shelf", contour=make_square_contour((1000.0, 1050.0), half_size=20.0))
+
+        # Should not raise - no bounds check
+        result = compute_attention_seconds(samples, [aoi])
+        assert result.total_samples == 1
+
+    def test_session_config_without_frame_size_skips_bounds(self) -> None:
+        """SessionConfig without frame_size should skip bounds check."""
+        config = SessionConfig(
+            session_id="no-frame",
+            frame_size=None,  # Explicitly no frame size
+        )
+        samples = [
+            ViewerSample(position=(1000.0, 1000.0), direction=(0.0, 1.0)),
+        ]
+        aoi = AOI(id="shelf", contour=make_square_contour((1000.0, 1050.0), half_size=20.0))
+
+        # Should not raise - no bounds check
+        result = compute_attention_seconds(samples, [aoi], session_config=config)
+        assert result.total_samples == 1
+
+    def test_frame_size_with_numpy_input(self) -> None:
+        """Frame size validation should work with numpy array input."""
+        config = SessionConfig(
+            session_id="test-numpy-bounds",
+            frame_size=(640, 480),
+        )
+        # Sample with x position out of bounds in numpy format
+        samples = np.array([
+            [700.0, 100.0, 0.0, 1.0],  # x > 640
+        ])
+        aoi = AOI(id="shelf", contour=make_square_contour((100.0, 150.0), half_size=15.0))
+
+        with pytest.raises(ValidationError, match="out of bounds"):
+            compute_attention_seconds(samples, [aoi], session_config=config)
+
+    def test_frame_size_numpy_valid_positions(self) -> None:
+        """Valid numpy samples within frame should pass."""
+        config = SessionConfig(
+            session_id="test-numpy-bounds",
+            frame_size=(640, 480),
+        )
+        samples = np.array([
+            [100.0, 100.0, 0.0, 1.0],
+            [300.0, 200.0, 1.0, 0.0],
+        ])
+        aoi = AOI(id="shelf", contour=make_square_contour((100.0, 150.0), half_size=20.0))
+
+        result = compute_attention_seconds(samples, [aoi], session_config=config)
+        assert result.total_samples == 2

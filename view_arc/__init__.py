@@ -32,6 +32,7 @@ from view_arc.tracking import (
     ValidationError,
     SingleSampleResult,
     AOIIntervalBreakdown,
+    SampleInput,
     process_single_sample,
     compute_attention_seconds,
 )
@@ -51,6 +52,7 @@ __all__ = [
     'ValidationError',
     'SingleSampleResult',
     'AOIIntervalBreakdown',
+    'SampleInput',
     'process_single_sample',
     'compute_attention_seconds',
     # Debug utilities

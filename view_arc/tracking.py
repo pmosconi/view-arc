@@ -596,6 +596,73 @@ def _validate_frame_size(
     return width_float, height_float
 
 
+# Type alias for flexible sample input
+SampleInput = list["ViewerSample"] | NDArray[np.floating[Any]]
+
+
+def normalize_sample_input(
+    samples: SampleInput,
+) -> list["ViewerSample"]:
+    """Normalize various input formats to a list of ViewerSample objects.
+
+    Supports multiple input formats for ergonomic API:
+    - List of ViewerSample objects (returned as-is)
+    - NumPy array of shape (N, 4) for [x, y, dx, dy] per row
+
+    The direction vectors in numpy input are normalized to unit vectors.
+
+    Args:
+        samples: Either a list of ViewerSample objects or a numpy array
+            of shape (N, 4) where each row is [x, y, dx, dy].
+
+    Returns:
+        List of ViewerSample objects.
+
+    Raises:
+        ValidationError: If samples format is unrecognized
+        ValidationError: If numpy array shape is not (N, 4)
+        ValidationError: If any direction vector has zero magnitude
+    """
+    # Already a list - return as-is (validation happens later)
+    if isinstance(samples, list):
+        return samples
+
+    # NumPy array of shape (N, 4)
+    if isinstance(samples, np.ndarray):
+        if samples.ndim != 2:
+            raise ValidationError(
+                f"NumPy samples must be 2D array, got shape {samples.shape}"
+            )
+        if samples.shape[1] != 4:
+            raise ValidationError(
+                f"NumPy samples must have shape (N, 4), got shape {samples.shape}"
+            )
+        if samples.shape[0] == 0:
+            return []
+
+        result: list[ViewerSample] = []
+        for i, row in enumerate(samples):
+            x, y, dx, dy = float(row[0]), float(row[1]), float(row[2]), float(row[3])
+            # Normalize direction to unit vector
+            mag = math.sqrt(dx * dx + dy * dy)
+            if mag == 0:
+                raise ValidationError(
+                    f"Sample at index {i} has zero-magnitude direction vector"
+                )
+            dx_norm, dy_norm = dx / mag, dy / mag
+            result.append(
+                ViewerSample(
+                    position=(x, y),
+                    direction=(dx_norm, dy_norm),
+                )
+            )
+        return result
+
+    raise ValidationError(
+        f"samples must be a list or numpy array, got {type(samples).__name__}"
+    )
+
+
 def validate_viewer_samples(
     samples: list[ViewerSample],
     frame_size: tuple[float, float] | None = None,
@@ -1013,7 +1080,7 @@ class TrackingResultWithConfig(TrackingResult):
 
 
 def compute_attention_seconds(
-    samples: list[ViewerSample],
+    samples: SampleInput,
     aois: list[AOI],
     fov_deg: float = 90.0,
     max_range: float = 500.0,
@@ -1030,15 +1097,18 @@ def compute_attention_seconds(
     of viewing time (default 1 second at 1 Hz sampling rate).
 
     Args:
-        samples: List of ViewerSample objects representing viewer observations.
-            Can also accept a numpy array of shape (N, 4) for [x, y, dx, dy].
+        samples: Viewer observations in one of the following formats:
+            - List of ViewerSample objects
+            - NumPy array of shape (N, 4) where each row is [x, y, dx, dy]
+            Direction vectors in numpy input are automatically normalized.
         aois: List of AOI objects defining the areas of interest to track.
         fov_deg: Field of view in degrees (default 90.0)
         max_range: Maximum detection range in pixels (default 500.0)
         sample_interval: Time interval per sample in seconds (default 1.0).
             Each hit adds this many seconds to the AOI's total_attention_seconds.
         session_config: Optional session configuration for metadata tracking.
-            If provided, it is embedded in the result for downstream analytics.
+            If provided, frame_size is used for bounds checking on sample positions,
+            and the config is embedded in the result for downstream analytics.
 
     Returns:
         TrackingResultWithConfig containing:
@@ -1072,8 +1142,19 @@ def compute_attention_seconds(
         >>> result = compute_attention_seconds(samples, aois)
         >>> print(f"shelf_A received {result.get_hit_count('shelf_A')} seconds of attention")
     """
+    # Normalize input to list of ViewerSample objects
+    normalized_samples = normalize_sample_input(samples)
+
+    # Determine frame_size for bounds checking
+    frame_size: tuple[float, float] | None = None
+    if session_config is not None and session_config.frame_size is not None:
+        frame_size = (
+            float(session_config.frame_size[0]),
+            float(session_config.frame_size[1]),
+        )
+
     # Validate inputs
-    validate_viewer_samples(samples)
+    validate_viewer_samples(normalized_samples, frame_size=frame_size)
     validate_aois(aois)
     validate_tracking_params(fov_deg, max_range, sample_interval)
 
@@ -1083,12 +1164,12 @@ def compute_attention_seconds(
         aoi_results[aoi.id] = AOIResult(aoi_id=aoi.id)
 
     # Track counters
-    total_samples = len(samples)
+    total_samples = len(normalized_samples)
     samples_with_hits = 0
     samples_no_winner = 0
 
     # Process each sample
-    for sample_index, sample in enumerate(samples):
+    for sample_index, sample in enumerate(normalized_samples):
         # Get the winning AOI ID for this sample
         winning_id = process_single_sample(
             sample=sample,
