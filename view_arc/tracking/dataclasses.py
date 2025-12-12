@@ -16,13 +16,16 @@ import math
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from numbers import Real
-from typing import Any, Literal
+from typing import TYPE_CHECKING, Any, Literal
 
 import numpy as np
 from numpy.typing import NDArray
 
 from view_arc.obstacle.clipping import is_valid_polygon
 from view_arc.obstacle.geometry import validate_and_get_direction_angle
+
+if TYPE_CHECKING:
+    import pandas as pd
 
 
 class ValidationError(Exception):
@@ -361,6 +364,145 @@ class TrackingResult:
             Tuple of strings describing the sampling assumptions.
         """
         return SAMPLING_ASSUMPTIONS
+
+    def get_top_aois(self, n: int) -> list[tuple[str | int, int]]:
+        """Return the top N AOIs by hit count.
+
+        AOIs are sorted in descending order of hit count. If multiple AOIs have
+        the same hit count, they are sorted by their ID (lexicographically).
+        If n exceeds the number of AOIs, all AOIs are returned.
+
+        Args:
+            n: Number of top AOIs to return
+
+        Returns:
+            List of (aoi_id, hit_count) tuples, sorted by descending hit count
+
+        Raises:
+            ValidationError: If n is negative
+        """
+        if n < 0:
+            raise ValidationError(f"n must be non-negative, got {n}")
+
+        # Sort AOIs by hit count (descending), then by ID (ascending) for ties
+        sorted_aois = sorted(
+            self.aoi_results.items(),
+            key=lambda item: (-item[1].hit_count, str(item[0])),
+        )
+
+        # Return top n (or all if n exceeds available)
+        return [(aoi_id, result.hit_count) for aoi_id, result in sorted_aois[:n]]
+
+    def get_attention_distribution(
+        self, include_no_hits: bool = False
+    ) -> dict[str | int, float]:
+        """Return the attention distribution as percentages across AOIs.
+
+        Calculates what percentage of time was spent viewing each AOI.
+        By default, excludes AOIs with zero hits unless include_no_hits is True.
+
+        Args:
+            include_no_hits: If True, include AOIs with zero hits in the result
+
+        Returns:
+            Dictionary mapping AOI IDs to their attention percentage (0-100).
+            Percentages sum to 100.0 (excluding samples with no winner).
+
+        Note:
+            If no AOI was ever viewed (samples_with_hits == 0), returns an
+            empty dictionary (or all zeros if include_no_hits=True).
+        """
+        distribution: dict[str | int, float] = {}
+
+        # If no samples had hits, return empty or zeros
+        if self.samples_with_hits == 0:
+            if include_no_hits:
+                return {aoi_id: 0.0 for aoi_id in self.aoi_results.keys()}
+            return {}
+
+        # Calculate percentage based on samples with hits
+        for aoi_id, result in self.aoi_results.items():
+            percentage = (result.hit_count / self.samples_with_hits) * 100.0
+            if include_no_hits or percentage > 0:
+                distribution[aoi_id] = percentage
+
+        return distribution
+
+    def get_viewing_timeline(self) -> list[tuple[int, str | int | None]]:
+        """Return the viewing timeline as a chronological sequence.
+
+        Returns a list of (sample_index, aoi_id) tuples representing which AOI
+        was being viewed at each sample. Samples with no winner have aoi_id=None.
+
+        Returns:
+            List of (sample_index, aoi_id) tuples in chronological order.
+            aoi_id is None for samples where no AOI was visible.
+
+        Note:
+            This method reconstructs the timeline from hit_timestamps recorded
+            in each AOIResult. The timeline length equals total_samples.
+        """
+        # Build a mapping from sample index to AOI ID
+        timeline: list[str | int | None] = [None] * self.total_samples
+
+        for aoi_id, result in self.aoi_results.items():
+            for sample_idx in result.hit_timestamps:
+                timeline[sample_idx] = aoi_id
+
+        # Convert to list of tuples with sample indices
+        return [(idx, aoi_id) for idx, aoi_id in enumerate(timeline)]
+
+    def to_dataframe(self) -> pd.DataFrame:
+        """Export tracking results to a pandas DataFrame.
+
+        Creates a DataFrame with one row per AOI containing:
+        - aoi_id: The AOI identifier
+        - hit_count: Number of times this AOI won
+        - total_attention_seconds: Total viewing time in seconds
+        - attention_percentage: Percentage of viewing time (0-100)
+
+        Returns:
+            pandas.DataFrame with AOI results
+
+        Raises:
+            ImportError: If pandas is not installed
+
+        Note:
+            This method has pandas as an optional dependency. Install with:
+            `pip install pandas` or `uv pip install pandas`
+        """
+        try:
+            import pandas as pd  # type: ignore[import-untyped]
+        except ImportError as e:
+            raise ImportError(
+                "pandas is required for to_dataframe(). "
+                "Install with: pip install pandas"
+            ) from e
+
+        # Get attention distribution
+        distribution = self.get_attention_distribution(include_no_hits=True)
+
+        # Build rows for DataFrame
+        rows = []
+        for aoi_id, result in self.aoi_results.items():
+            rows.append(
+                {
+                    "aoi_id": aoi_id,
+                    "hit_count": result.hit_count,
+                    "total_attention_seconds": result.total_attention_seconds,
+                    "attention_percentage": distribution.get(aoi_id, 0.0),
+                }
+            )
+
+        # Create DataFrame with explicit columns to ensure empty DataFrame has correct structure
+        columns = ["aoi_id", "hit_count", "total_attention_seconds", "attention_percentage"]
+        df = pd.DataFrame(rows, columns=columns)
+        
+        # Sort by hit count descending if not empty
+        if not df.empty:
+            df = df.sort_values("hit_count", ascending=False).reset_index(drop=True)
+
+        return df
 
 
 # =============================================================================
