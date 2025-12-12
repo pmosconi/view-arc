@@ -289,6 +289,29 @@ class TrackingResult:
                 f"({self.samples_no_winner}) must equal total_samples ({self.total_samples})"
             )
 
+        # Validate that per-AOI tallies agree with session totals
+        total_hit_count = sum(r.hit_count for r in self.aoi_results.values())
+        if total_hit_count != self.samples_with_hits:
+            raise ValidationError(
+                f"Sum of AOI hit counts ({total_hit_count}) must equal "
+                f"samples_with_hits ({self.samples_with_hits})"
+            )
+
+        total_timestamp_count = sum(len(r.hit_timestamps) for r in self.aoi_results.values())
+        if total_timestamp_count != self.samples_with_hits:
+            raise ValidationError(
+                f"Sum of AOI hit_timestamps lengths ({total_timestamp_count}) must equal "
+                f"samples_with_hits ({self.samples_with_hits})"
+            )
+
+        # Validate that each AOI's hit_count matches its hit_timestamps length
+        for aoi_id, result in self.aoi_results.items():
+            if len(result.hit_timestamps) != result.hit_count:
+                raise ValidationError(
+                    f"AOI '{aoi_id}' hit_timestamps length ({len(result.hit_timestamps)}) "
+                    f"does not match hit_count ({result.hit_count})"
+                )
+
     def get_aoi_result(self, aoi_id: str | int) -> AOIResult | None:
         """Get the result for a specific AOI.
 
@@ -438,6 +461,10 @@ class TrackingResult:
             List of (sample_index, aoi_id) tuples in chronological order.
             aoi_id is None for samples where no AOI was visible.
 
+        Raises:
+            ValidationError: If any hit_timestamps contain invalid indices
+                (negative or >= total_samples)
+
         Note:
             This method reconstructs the timeline from hit_timestamps recorded
             in each AOIResult. The timeline length equals total_samples.
@@ -447,6 +474,20 @@ class TrackingResult:
 
         for aoi_id, result in self.aoi_results.items():
             for sample_idx in result.hit_timestamps:
+                # Validate index is within valid range
+                if not isinstance(sample_idx, int):
+                    raise ValidationError(
+                        f"AOI '{aoi_id}' has non-integer hit_timestamp: {sample_idx}"
+                    )
+                if sample_idx < 0:
+                    raise ValidationError(
+                        f"AOI '{aoi_id}' has negative hit_timestamp: {sample_idx}"
+                    )
+                if sample_idx >= self.total_samples:
+                    raise ValidationError(
+                        f"AOI '{aoi_id}' has hit_timestamp ({sample_idx}) >= "
+                        f"total_samples ({self.total_samples})"
+                    )
                 timeline[sample_idx] = aoi_id
 
         # Convert to list of tuples with sample indices

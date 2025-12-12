@@ -111,8 +111,8 @@ class TestTrackingResultAssumptions:
     def test_tracking_result_assumptions_with_data(self) -> None:
         """TrackingResult.assumptions should work with populated result."""
         aoi_results: dict[str | int, AOIResult] = {
-            "shelf_1": AOIResult(aoi_id="shelf_1", hit_count=10, total_attention_seconds=10.0),
-            "shelf_2": AOIResult(aoi_id="shelf_2", hit_count=5, total_attention_seconds=5.0),
+            "shelf_1": AOIResult(aoi_id="shelf_1", hit_count=10, total_attention_seconds=10.0, hit_timestamps=list(range(10))),
+            "shelf_2": AOIResult(aoi_id="shelf_2", hit_count=5, total_attention_seconds=5.0, hit_timestamps=list(range(10, 15))),
         }
         result = TrackingResult(
             aoi_results=aoi_results,

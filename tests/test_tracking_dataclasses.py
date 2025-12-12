@@ -376,8 +376,8 @@ class TestTrackingResultAccessors:
     def test_tracking_result_creation(self) -> None:
         """Test creating a TrackingResult."""
         aoi_results: dict[str | int, AOIResult] = {
-            "a": AOIResult(aoi_id="a", hit_count=10, total_attention_seconds=10.0),
-            "b": AOIResult(aoi_id="b", hit_count=5, total_attention_seconds=5.0),
+            "a": AOIResult(aoi_id="a", hit_count=10, total_attention_seconds=10.0, hit_timestamps=list(range(10))),
+            "b": AOIResult(aoi_id="b", hit_count=5, total_attention_seconds=5.0, hit_timestamps=list(range(10, 15))),
         }
         result = TrackingResult(
             aoi_results=aoi_results,
@@ -392,7 +392,7 @@ class TestTrackingResultAccessors:
 
     def test_tracking_result_get_aoi_result(self) -> None:
         """Test get_aoi_result returns correct AOIResult."""
-        aoi_result = AOIResult(aoi_id="shelf_1", hit_count=7)
+        aoi_result = AOIResult(aoi_id="shelf_1", hit_count=7, hit_timestamps=list(range(7)))
         result = TrackingResult(
             aoi_results={"shelf_1": aoi_result},
             total_samples=10,
@@ -419,8 +419,8 @@ class TestTrackingResultAccessors:
         """Test get_hit_count returns correct count."""
         result = TrackingResult(
             aoi_results={
-                "a": AOIResult(aoi_id="a", hit_count=5),
-                "b": AOIResult(aoi_id="b", hit_count=3),
+                "a": AOIResult(aoi_id="a", hit_count=5, hit_timestamps=list(range(5))),
+                "b": AOIResult(aoi_id="b", hit_count=3, hit_timestamps=list(range(5, 8))),
             },
             total_samples=10,
             samples_with_hits=8,
@@ -435,9 +435,9 @@ class TestTrackingResultAccessors:
         """Test get_total_hits sums all AOI hits."""
         result = TrackingResult(
             aoi_results={
-                "a": AOIResult(aoi_id="a", hit_count=10),
-                "b": AOIResult(aoi_id="b", hit_count=5),
-                "c": AOIResult(aoi_id="c", hit_count=0),
+                "a": AOIResult(aoi_id="a", hit_count=10, hit_timestamps=list(range(10))),
+                "b": AOIResult(aoi_id="b", hit_count=5, hit_timestamps=list(range(10, 15))),
+                "c": AOIResult(aoi_id="c", hit_count=0, hit_timestamps=[]),
             },
             total_samples=20,
             samples_with_hits=15,
@@ -450,7 +450,7 @@ class TestTrackingResultAccessors:
         """Test get_attention_seconds returns correct value."""
         result = TrackingResult(
             aoi_results={
-                "a": AOIResult(aoi_id="a", total_attention_seconds=10.5),
+                "a": AOIResult(aoi_id="a", hit_count=10, total_attention_seconds=10.5, hit_timestamps=list(range(10))),
             },
             total_samples=15,
             samples_with_hits=10,
@@ -463,7 +463,9 @@ class TestTrackingResultAccessors:
     def test_tracking_result_coverage_ratio(self) -> None:
         """Test coverage_ratio property."""
         result = TrackingResult(
-            aoi_results={},
+            aoi_results={
+                "a": AOIResult(aoi_id="a", hit_count=75, hit_timestamps=list(range(75))),
+            },
             total_samples=100,
             samples_with_hits=75,
             samples_no_winner=25,
@@ -486,9 +488,9 @@ class TestTrackingResultAccessors:
         """Test aoi_ids property returns all IDs."""
         result = TrackingResult(
             aoi_results={
-                "shelf_1": AOIResult(aoi_id="shelf_1"),
-                "shelf_2": AOIResult(aoi_id="shelf_2"),
-                42: AOIResult(aoi_id=42),
+                "shelf_1": AOIResult(aoi_id="shelf_1", hit_count=2, hit_timestamps=[0, 1]),
+                "shelf_2": AOIResult(aoi_id="shelf_2", hit_count=2, hit_timestamps=[2, 3]),
+                42: AOIResult(aoi_id=42, hit_count=1, hit_timestamps=[4]),
             },
             total_samples=10,
             samples_with_hits=5,
@@ -505,8 +507,8 @@ class TestTrackingResultAccessors:
         """Test TrackingResult handles mixed ID types correctly."""
         result = TrackingResult(
             aoi_results={
-                1: AOIResult(aoi_id=1, hit_count=5),
-                "two": AOIResult(aoi_id="two", hit_count=3),
+                1: AOIResult(aoi_id=1, hit_count=5, hit_timestamps=list(range(5))),
+                "two": AOIResult(aoi_id="two", hit_count=3, hit_timestamps=list(range(5, 8))),
             },
             total_samples=10,
             samples_with_hits=8,
@@ -597,7 +599,7 @@ class TestTrackingResultValidation:
     def test_tracking_result_accepts_all_hits(self) -> None:
         """Test that 100% hit rate is valid."""
         result = TrackingResult(
-            aoi_results={"a": AOIResult(aoi_id="a", hit_count=10)},
+            aoi_results={"a": AOIResult(aoi_id="a", hit_count=10, hit_timestamps=list(range(10)))},
             total_samples=10,
             samples_with_hits=10,
             samples_no_winner=0,

@@ -360,3 +360,158 @@ def test_to_dataframe_with_zero_hits(tracking_result_no_hits: TrackingResult) ->
     assert len(df) == 2
     assert all(df["hit_count"] == 0)
     assert all(df["attention_percentage"] == 0.0)
+
+
+# =============================================================================
+# Tests: Tally Validation (High Priority)
+# =============================================================================
+
+
+def test_tracking_result_rejects_mismatched_hit_count_sum() -> None:
+    """Test that ValidationError is raised when sum of hit_counts != samples_with_hits."""
+    aoi_results: dict[str | int, AOIResult] = {
+        "shelf_A": AOIResult(aoi_id="shelf_A", hit_count=10, total_attention_seconds=10.0, hit_timestamps=list(range(10))),
+        "shelf_B": AOIResult(aoi_id="shelf_B", hit_count=5, total_attention_seconds=5.0, hit_timestamps=list(range(10, 15))),
+    }
+    
+    # Sum of hit_counts = 15, but samples_with_hits = 14 (mismatch)
+    with pytest.raises(ValidationError, match="Sum of AOI hit counts .* must equal samples_with_hits"):
+        TrackingResult(
+            aoi_results=aoi_results,
+            total_samples=20,
+            samples_with_hits=14,  # Wrong! Should be 15
+            samples_no_winner=6,   # Wrong! Should be 5
+        )
+
+
+def test_tracking_result_rejects_mismatched_timestamps_count() -> None:
+    """Test that ValidationError is raised when sum of hit_timestamps lengths != samples_with_hits."""
+    aoi_results: dict[str | int, AOIResult] = {
+        "shelf_A": AOIResult(aoi_id="shelf_A", hit_count=10, total_attention_seconds=10.0, hit_timestamps=list(range(10))),
+        # This result has 6 timestamps but hit_count=5 - inconsistent!
+        "shelf_B": AOIResult(aoi_id="shelf_B", hit_count=5, total_attention_seconds=5.0, hit_timestamps=list(range(10, 16))),
+    }
+    
+    with pytest.raises(ValidationError, match="Sum of AOI hit_timestamps lengths .* must equal samples_with_hits"):
+        TrackingResult(
+            aoi_results=aoi_results,
+            total_samples=20,
+            samples_with_hits=15,
+            samples_no_winner=5,
+        )
+
+
+def test_tracking_result_rejects_aoi_timestamp_count_mismatch() -> None:
+    """Test that ValidationError is raised when an AOI's hit_count != len(hit_timestamps)."""
+    aoi_results: dict[str | int, AOIResult] = {
+        "shelf_A": AOIResult(aoi_id="shelf_A", hit_count=10, total_attention_seconds=10.0, hit_timestamps=list(range(10))),
+        # This AOI says hit_count=6 but has only 5 timestamps! (hit_count = 10+6=16, timestamps = 10+5=15)
+        "shelf_B": AOIResult(aoi_id="shelf_B", hit_count=6, total_attention_seconds=6.0, hit_timestamps=list(range(10, 15))),
+    }
+    
+    # The validation will catch this either at the sum level or the per-AOI level
+    with pytest.raises(ValidationError, match="(Sum of AOI hit_timestamps lengths|AOI 'shelf_B' hit_timestamps length)"):
+        TrackingResult(
+            aoi_results=aoi_results,
+            total_samples=20,
+            samples_with_hits=16,  # Matches sum of hit_counts (10+6), but not sum of timestamps (10+5)
+            samples_no_winner=4,
+        )
+
+
+def test_tracking_result_accepts_consistent_tallies() -> None:
+    """Test that TrackingResult is created successfully when all tallies are consistent."""
+    aoi_results: dict[str | int, AOIResult] = {
+        "shelf_A": AOIResult(aoi_id="shelf_A", hit_count=10, total_attention_seconds=10.0, hit_timestamps=list(range(10))),
+        "shelf_B": AOIResult(aoi_id="shelf_B", hit_count=5, total_attention_seconds=5.0, hit_timestamps=list(range(10, 15))),
+    }
+    
+    # All tallies are consistent: 10 + 5 = 15 samples_with_hits, 15 + 5 = 20 total
+    result = TrackingResult(
+        aoi_results=aoi_results,
+        total_samples=20,
+        samples_with_hits=15,
+        samples_no_winner=5,
+    )
+    
+    assert result.samples_with_hits == 15
+    assert result.get_total_hits() == 15
+
+
+# =============================================================================
+# Tests: Timeline Index Validation (Medium Priority)
+# =============================================================================
+
+
+def test_viewing_timeline_rejects_negative_index() -> None:
+    """Test that get_viewing_timeline() raises ValidationError for negative hit_timestamps."""
+    aoi_results: dict[str | int, AOIResult] = {
+        "shelf_A": AOIResult(aoi_id="shelf_A", hit_count=2, total_attention_seconds=2.0, hit_timestamps=[0, -1]),  # -1 is invalid
+    }
+    
+    result = TrackingResult(
+        aoi_results=aoi_results,
+        total_samples=10,
+        samples_with_hits=2,
+        samples_no_winner=8,
+    )
+    
+    with pytest.raises(ValidationError, match="AOI 'shelf_A' has negative hit_timestamp: -1"):
+        result.get_viewing_timeline()
+
+
+def test_viewing_timeline_rejects_out_of_bounds_index() -> None:
+    """Test that get_viewing_timeline() raises ValidationError for hit_timestamps >= total_samples."""
+    aoi_results: dict[str | int, AOIResult] = {
+        "shelf_A": AOIResult(aoi_id="shelf_A", hit_count=2, total_attention_seconds=2.0, hit_timestamps=[0, 10]),  # 10 >= total_samples
+    }
+    
+    result = TrackingResult(
+        aoi_results=aoi_results,
+        total_samples=10,
+        samples_with_hits=2,
+        samples_no_winner=8,
+    )
+    
+    with pytest.raises(ValidationError, match=r"AOI 'shelf_A' has hit_timestamp \(10\) >= total_samples \(10\)"):
+        result.get_viewing_timeline()
+
+
+def test_viewing_timeline_rejects_non_integer_index() -> None:
+    """Test that get_viewing_timeline() raises ValidationError for non-integer hit_timestamps."""
+    aoi_results: dict[str | int, AOIResult] = {
+        "shelf_A": AOIResult(aoi_id="shelf_A", hit_count=2, total_attention_seconds=2.0, hit_timestamps=[0, 1.5]),  # 1.5 is not an int # type: ignore
+    }
+    
+    result = TrackingResult(
+        aoi_results=aoi_results,
+        total_samples=10,
+        samples_with_hits=2,
+        samples_no_winner=8,
+    )
+    
+    with pytest.raises(ValidationError, match="AOI 'shelf_A' has non-integer hit_timestamp: 1.5"):
+        result.get_viewing_timeline()
+
+
+def test_viewing_timeline_accepts_valid_indices() -> None:
+    """Test that get_viewing_timeline() works correctly with valid indices."""
+    aoi_results: dict[str | int, AOIResult] = {
+        "shelf_A": AOIResult(aoi_id="shelf_A", hit_count=3, total_attention_seconds=3.0, hit_timestamps=[0, 5, 9]),
+    }
+    
+    result = TrackingResult(
+        aoi_results=aoi_results,
+        total_samples=10,
+        samples_with_hits=3,
+        samples_no_winner=7,
+    )
+    
+    timeline = result.get_viewing_timeline()
+    
+    assert len(timeline) == 10
+    assert timeline[0][1] == "shelf_A"
+    assert timeline[5][1] == "shelf_A"
+    assert timeline[9][1] == "shelf_A"
+    assert timeline[1][1] is None
+    assert timeline[4][1] is None
