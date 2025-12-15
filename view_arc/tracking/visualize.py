@@ -138,12 +138,21 @@ def draw_attention_heatmap(
     output = image.copy()
 
     # Find max hit count for normalization
+    # Use .get() to safely handle cases where AOI list doesn't match result dict
+    # (e.g., when visualizing filtered or extended AOI lists)
     max_hits = max(
-        (tracking_result.aoi_results[aoi.id].hit_count for aoi in aois), default=0
+        (
+            tracking_result.aoi_results.get(aoi.id, None)
+            for aoi in aois
+            if tracking_result.aoi_results.get(aoi.id) is not None
+        ),
+        default=None,
+        key=lambda r: r.hit_count if r is not None else 0,
     )
+    max_hits_value = max_hits.hit_count if max_hits is not None else 0
 
     # Handle case where no AOI has hits
-    if max_hits == 0:
+    if max_hits_value == 0:
         # All AOIs have zero hits - use background color if provided
         if background_color is not None:
             for aoi in aois:
@@ -180,7 +189,7 @@ def draw_attention_heatmap(
             color = background_color
         else:
             # Normalize hit count to [0, 1]
-            normalized_value = hit_count / max_hits
+            normalized_value = hit_count / max_hits_value
             color = _get_heatmap_color(normalized_value, colormap)
 
         # Convert contour to integer coordinates for OpenCV
@@ -207,7 +216,7 @@ def draw_attention_heatmap(
                     continue
                 color = background_color
             else:
-                normalized_value = hit_count / max_hits
+                normalized_value = hit_count / max_hits_value
                 color = _get_heatmap_color(normalized_value, colormap)
 
             pts = aoi.contour.astype(np.int32).reshape((-1, 1, 2))

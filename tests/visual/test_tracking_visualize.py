@@ -4,6 +4,11 @@ Visual tests for attention tracking visualization functions.
 These tests verify that the heatmap and label drawing functions produce
 correct visual output. Output images are saved to tests/visual/output/
 for manual inspection.
+
+**REQUIREMENTS**: These tests require OpenCV (cv2) to run. The dependency
+is included in the [dev] extras (opencv-python-headless) and must be
+installed for CI/test environments. If cv2 is missing, tests will FAIL
+rather than skip to prevent regressions from slipping through unnoticed.
 """
 
 import os
@@ -12,8 +17,17 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-# Skip all tests in this file if cv2 is not available
-cv2 = pytest.importorskip("cv2")
+# Import cv2 directly - fail loudly if missing rather than silently skipping
+try:
+    import cv2
+except ImportError as e:
+    pytest.fail(
+        f"OpenCV (cv2) is required for visualization tests but is not installed.\n"
+        f"Install with: pip install opencv-python-headless\n"
+        f"Or install all dev dependencies: pip install -e .[dev]\n"
+        f"Original error: {e}",
+        pytrace=False,
+    )
 
 from view_arc.tracking.dataclasses import AOI, AOIResult, TrackingResult
 from view_arc.tracking.visualize import draw_attention_heatmap, draw_attention_labels
@@ -157,7 +171,7 @@ class TestDrawAttentionHeatmap:
             # Create mask for this AOI
             mask = np.zeros(blank_image.shape[:2], dtype=np.uint8)
             pts = aoi.contour.astype(np.int32).reshape((-1, 1, 2))
-            cv2.fillPoly(mask, [pts], 255)
+            cv2.fillPoly(mask, [pts], 255)  # type: ignore[arg-type, call-overload]
 
             # Get average color in masked region
             avg_color = cv2.mean(result_img, mask=mask)[:3]  # BGR
@@ -255,6 +269,68 @@ class TestDrawAttentionHeatmap:
             # Save output for visual inspection
             output_path = OUTPUT_DIR / f"test_heatmap_alpha_{alpha:.1f}.png"
             cv2.imwrite(str(output_path), result_img)
+
+    def test_draw_attention_heatmap_mismatched_aois(
+        self, blank_image: np.ndarray
+    ) -> None:
+        """Test heatmap when AOI list doesn't match tracking result (HIGH priority fix).
+        
+        This test verifies the fix for the KeyError bug when visualizing filtered
+        or extended AOI lists that don't match the tracking result dictionary.
+        """
+        # Create AOIs
+        aois = [
+            AOI(
+                id="shelf_a",
+                contour=np.array([[100, 50], [700, 50], [700, 150], [100, 150]], dtype=np.float32),
+            ),
+            AOI(
+                id="shelf_b",
+                contour=np.array([[100, 250], [700, 250], [700, 350], [100, 350]], dtype=np.float32),
+            ),
+            AOI(
+                id="shelf_c",  # This AOI is NOT in the tracking result
+                contour=np.array([[100, 450], [700, 450], [700, 550], [100, 550]], dtype=np.float32),
+            ),
+        ]
+        
+        # Create result that only has data for shelf_a and shelf_b (shelf_c is missing)
+        result = TrackingResult(
+            aoi_results={
+                "shelf_a": AOIResult(
+                    aoi_id="shelf_a",
+                    hit_count=30,
+                    total_attention_seconds=30.0,
+                    hit_timestamps=list(range(30)),
+                ),
+                "shelf_b": AOIResult(
+                    aoi_id="shelf_b",
+                    hit_count=10,
+                    total_attention_seconds=10.0,
+                    hit_timestamps=list(range(30, 40)),
+                ),
+                # shelf_c is intentionally missing
+            },
+            total_samples=60,
+            samples_with_hits=40,
+            samples_no_winner=20,
+        )
+        
+        # This should NOT raise KeyError even though shelf_c is not in the result
+        result_img = draw_attention_heatmap(
+            blank_image,
+            aois,
+            result,
+            colormap="hot",
+            background_color=(230, 230, 230),
+        )
+        
+        # Verify image was modified
+        assert not np.array_equal(result_img, blank_image)
+        
+        # Save output for visual inspection
+        output_path = OUTPUT_DIR / "test_heatmap_mismatched_aois.png"
+        cv2.imwrite(str(output_path), result_img)
 
 
 class TestDrawAttentionLabels:
