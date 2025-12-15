@@ -673,3 +673,28 @@ class TestProcessSingleSampleValidation:
 
         with pytest.raises(ValidationError, match="max_range"):
             process_single_sample(sample, [], field_of_view_deg=90.0, max_range=-50.0)
+
+    def test_duplicate_aoi_ids_allowed(self) -> None:
+        """Duplicate AOI IDs are allowed - validation is caller's responsibility.
+        
+        This test documents that process_single_sample() does NOT enforce
+        AOI ID uniqueness. Callers who need uniqueness should use
+        compute_attention_seconds() or validate AOIs themselves.
+        """
+        sample = ViewerSample(position=(100.0, 100.0), direction=(0.0, 1.0))
+        
+        # Create two AOIs with the same ID but different positions
+        aoi1 = AOI(id="duplicate", contour=make_square_contour((50, 150), 10))
+        aoi2 = AOI(id="duplicate", contour=make_square_contour((100, 150), 10))
+        
+        # This should NOT raise - duplicate IDs are allowed
+        result = process_single_sample(
+            sample,
+            [aoi1, aoi2],
+            field_of_view_deg=90.0,
+            max_range=200.0,
+        )
+        
+        # Result should be one of the duplicate IDs
+        # (which one is undefined, depends on which AOI wins)
+        assert result == "duplicate" or result is None

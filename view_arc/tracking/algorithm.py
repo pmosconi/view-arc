@@ -5,6 +5,23 @@ Tracking Algorithm
 Core tracking algorithm functions:
 - process_single_sample: Process one viewer sample to find winning AOI
 - compute_attention_seconds: Batch process samples and accumulate attention
+
+Validation Layers
+-----------------
+The validation strategy follows a layered approach:
+
+1. **compute_attention_seconds()**: Full validation including AOI uniqueness
+   - Calls validate_aois() to ensure all AOI IDs are unique
+   - Calls validate_viewer_samples() for input integrity
+   - Calls validate_tracking_params() for parameter bounds
+   - Recommended for all batch processing workflows
+
+2. **process_single_sample()**: Minimal type validation only
+   - Validates that sample is a ViewerSample
+   - Validates that aois is a list of AOI objects
+   - Does NOT enforce AOI ID uniqueness
+   - Direct callers are responsible for validating AOIs if uniqueness is required
+   - Suitable for custom processing loops where validation happens upstream
 """
 
 from __future__ import annotations
@@ -142,9 +159,17 @@ def process_single_sample(
     - Returns the winning AOI ID (or None if no winner)
     - Optionally returns detailed result for debugging
 
+    Note:
+        This function does NOT validate AOI uniqueness (duplicate IDs are allowed).
+        For batch processing with uniqueness enforcement, use `compute_attention_seconds()`
+        which calls `validate_aois()` to ensure all AOI IDs are unique. Direct callers
+        of this function are responsible for validating AOIs if uniqueness is required.
+
     Args:
         sample: A ViewerSample containing position and direction
-        aois: List of AOI objects to check against
+        aois: List of AOI objects to check against. AOI IDs do not need to be unique
+            when calling this function directly, though duplicate IDs may lead to
+            ambiguous results if multiple AOIs share the same ID.
         field_of_view_deg: Field of view in degrees (default 90.0)
         max_range: Maximum detection range in pixels (default 500.0)
         return_details: If True, return SingleSampleResult with full details;
