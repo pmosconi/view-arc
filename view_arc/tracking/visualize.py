@@ -7,10 +7,14 @@ and labels on images, useful for analyzing viewer attention patterns.
 
 from typing import Literal
 
+import math
+
 import numpy as np
 from numpy.typing import NDArray
 
 from view_arc.tracking.dataclasses import AOI, TrackingResult
+
+Color = tuple[int, int, int]
 
 # Try to import cv2, set flag if not available
 try:
@@ -340,3 +344,468 @@ def draw_attention_labels(
         )
 
     return output
+
+
+def _build_sample_winners(tracking_result: TrackingResult) -> list[str | int | None]:
+    """Create a per-sample winner list from TrackingResult hit timestamps."""
+
+    winners: list[str | int | None] = [None] * tracking_result.total_samples
+    for result in tracking_result.aoi_results.values():
+        for sample_index in result.hit_timestamps:
+            if 0 <= sample_index < tracking_result.total_samples:
+                winners[sample_index] = result.aoi_id
+    return winners
+
+
+def _generate_color_palette(count: int) -> list[Color]:
+    """Generate visually distinct colors using HSV sampling."""
+
+    _ensure_cv2()
+    if count <= 0:
+        return []
+
+    hsv = np.zeros((count, 1, 3), dtype=np.uint8)
+    for idx in range(count):
+        hue = int(round((180 / max(count, 1)) * idx)) % 180
+        hsv[idx, 0, 0] = hue
+        hsv[idx, 0, 1] = 200
+        hsv[idx, 0, 2] = 255
+
+    bgr = cv2.cvtColor(hsv, cv2.COLOR_HSV2BGR)
+    colors: list[Color] = []
+    for idx in range(count):
+        pixel = bgr[idx, 0]
+        color: Color = (int(pixel[0]), int(pixel[1]), int(pixel[2]))
+        colors.append(color)
+    return colors
+
+
+def _resolve_aoi_colors(
+    aoi_ids: list[str | int],
+    preferred_colors: dict[str | int, Color] | None,
+) -> dict[str | int, Color]:
+    """Return a mapping of AOI IDs to BGR colors, honoring preferred colors."""
+
+    color_map: dict[str | int, Color] = {}
+    preferred_colors = preferred_colors or {}
+
+    missing_ids: list[str | int] = []
+    for aoi_id in aoi_ids:
+        color = preferred_colors.get(aoi_id)
+        if color is None:
+            missing_ids.append(aoi_id)
+            continue
+
+        if len(color) != 3:
+            raise ValueError(
+                f"Preferred color for AOI '{aoi_id}' must have 3 components, got {len(color)}"
+            )
+        normalized: Color = (
+            int(max(0, min(255, color[0]))),
+            int(max(0, min(255, color[1]))),
+            int(max(0, min(255, color[2]))),
+        )
+        color_map[aoi_id] = normalized
+
+    auto_colors = _generate_color_palette(len(missing_ids))
+    for aoi_id, color in zip(missing_ids, auto_colors, strict=False):
+        color_map[aoi_id] = color
+
+    return color_map
+
+
+def _compute_sample_boundaries(total_samples: int, width: int) -> list[tuple[int, int]]:
+    """Compute pixel boundaries for each sample along the timeline width."""
+
+    if total_samples <= 0 or width <= 0:
+        return []
+
+    px_per_sample = width / total_samples
+    boundaries: list[tuple[int, int]] = []
+    for sample_idx in range(total_samples):
+        start_x = int(round(sample_idx * px_per_sample))
+        end_x = int(round((sample_idx + 1) * px_per_sample))
+        if end_x <= start_x:
+            end_x = start_x + 1
+        start_x = max(0, min(start_x, width - 1))
+        end_x = max(start_x + 1, min(end_x, width))
+        boundaries.append((start_x, end_x))
+
+    # Ensure the final segment touches the right edge exactly
+    boundaries[-1] = (boundaries[-1][0], width)
+    return boundaries
+
+
+def _compute_legend_height(
+    *, aoi_count: int, show_legend: bool, height: int, legend_columns: int, padding: int
+) -> int:
+    """Determine how much vertical space the legend should use."""
+
+    if not show_legend or aoi_count == 0:
+        return 0
+
+    rows = math.ceil(aoi_count / max(1, legend_columns))
+    base_height = max(40, rows * 24 + 2 * padding)
+    max_available = max(0, height - 40)
+    if max_available == 0:
+        return 0
+    return min(base_height, max_available)
+
+
+def _initialize_timeline_canvas(
+    *,
+    tracking_result: TrackingResult,
+    width: int,
+    height: int,
+    background_color: Color,
+    gap_color: Color,
+    aoi_colors: dict[str | int, Color] | None,
+    show_legend: bool,
+    legend_columns: int,
+    timeline_padding: int,
+) -> tuple[
+    NDArray[np.uint8],
+    list[str | int | None],
+    dict[str | int, Color],
+    list[tuple[int, int]],
+    int,
+    int,
+    int,
+    int,
+]:
+    """Prepare the base canvas and derived metadata for timeline rendering."""
+
+    if width <= 0 or height <= 0:
+        raise ValueError("width and height must be positive integers")
+
+    winners = _build_sample_winners(tracking_result)
+    color_map = _resolve_aoi_colors(list(tracking_result.aoi_results.keys()), aoi_colors)
+    legend_height = _compute_legend_height(
+        aoi_count=len(color_map),
+        show_legend=show_legend,
+        height=height,
+        legend_columns=legend_columns,
+        padding=timeline_padding,
+    )
+
+    timeline_area_height = max(20, height - legend_height)
+    bar_height = max(8, timeline_area_height - 2 * timeline_padding)
+    if bar_height > timeline_area_height:
+        bar_height = timeline_area_height
+
+    timeline_top = max(0, (timeline_area_height - bar_height) // 2)
+    timeline_bottom = timeline_top + bar_height
+    legend_y_start = timeline_area_height
+
+    base_canvas = np.full((height, width, 3), background_color, dtype=np.uint8)
+    sample_boundaries = _compute_sample_boundaries(len(winners), width)
+
+    return (
+        base_canvas,
+        winners,
+        color_map,
+        sample_boundaries,
+        timeline_top,
+        timeline_bottom,
+        legend_y_start,
+        legend_height,
+    )
+
+
+def _fill_timeline_bar(
+    canvas: NDArray[np.uint8],
+    winners: list[str | int | None],
+    sample_boundaries: list[tuple[int, int]],
+    color_map: dict[str | int, Color],
+    gap_color: Color,
+    timeline_top: int,
+    timeline_bottom: int,
+    processed_samples: int,
+    future_color: Color | None = None,
+) -> None:
+    """Fill the timeline bar with AOI colors for processed samples."""
+
+    if not sample_boundaries:
+        return
+
+    bar_bottom = max(timeline_top, min(timeline_bottom - 1, canvas.shape[0] - 1))
+    if bar_bottom < timeline_top:
+        return
+
+    total_samples = len(sample_boundaries)
+    processed_samples = max(0, min(processed_samples, total_samples))
+
+    for idx, (start_x, end_x) in enumerate(sample_boundaries):
+        if idx >= processed_samples:
+            if future_color is None:
+                continue
+            color = future_color
+        else:
+            winner = winners[idx]
+            color = color_map.get(winner, gap_color) if winner is not None else gap_color
+
+        x1 = max(0, min(start_x, canvas.shape[1] - 1))
+        x2 = max(x1, min(end_x - 1, canvas.shape[1] - 1))
+        cv2.rectangle(canvas, (x1, timeline_top), (x2, bar_bottom), color, -1)
+
+
+def _draw_no_samples_message(
+    canvas: NDArray[np.uint8],
+    timeline_top: int,
+    timeline_bottom: int,
+    font_scale: float,
+    font_thickness: int,
+) -> None:
+    """Draw a friendly message when there are no samples to visualize."""
+
+    font = cv2.FONT_HERSHEY_SIMPLEX
+    text = "No samples to visualize"
+    (text_w, text_h), _ = cv2.getTextSize(text, font, font_scale, font_thickness)
+    y_center = timeline_top + max(0, (timeline_bottom - timeline_top) // 2)
+    text_x = max(8, (canvas.shape[1] - text_w) // 2)
+    text_y = max(text_h + 8, y_center)
+    text_y = min(text_y, max(timeline_bottom, text_h + 8))
+    cv2.putText(
+        canvas,
+        text,
+        (text_x, text_y),
+        font,
+        font_scale,
+        (80, 80, 80),
+        font_thickness,
+        cv2.LINE_AA,
+    )
+
+
+def _draw_legend(
+    canvas: NDArray[np.uint8],
+    color_map: dict[str | int, Color],
+    legend_y_start: int,
+    legend_height: int,
+    legend_columns: int,
+    font_scale: float,
+    font_thickness: int,
+) -> None:
+    """Draw a color legend showing AOI labels."""
+
+    if legend_height <= 0 or not color_map:
+        return
+
+    font = cv2.FONT_HERSHEY_SIMPLEX
+    column_count = max(1, legend_columns)
+    col_width = canvas.shape[1] / column_count
+    rows = math.ceil(len(color_map) / column_count)
+    y_padding = 10
+    available_height = max(1, legend_height - 2 * y_padding)
+    row_spacing = max(18, available_height / max(1, rows))
+    icon_size = 16
+
+    for idx, (aoi_id, color) in enumerate(color_map.items()):
+        row = idx // column_count
+        col = idx % column_count
+        x = int(col * col_width + 12)
+        y = int(legend_y_start + y_padding + row * row_spacing)
+        y = min(y, canvas.shape[0] - icon_size - 4)
+
+        top_left = (x, y)
+        bottom_right = (x + icon_size, y + icon_size)
+        cv2.rectangle(canvas, top_left, bottom_right, color, -1)
+
+        label = str(aoi_id)
+        text_pos = (x + icon_size + 8, y + icon_size - 4)
+        cv2.putText(
+            canvas,
+            label,
+            text_pos,
+            font,
+            font_scale,
+            (0, 0, 0),
+            font_thickness,
+            cv2.LINE_AA,
+        )
+
+
+def draw_viewing_timeline(
+    tracking_result: TrackingResult,
+    width: int = 1000,
+    height: int = 240,
+    *,
+    aoi_colors: dict[str | int, Color] | None = None,
+    gap_color: Color = (210, 210, 210),
+    background_color: Color = (255, 255, 255),
+    show_legend: bool = True,
+    legend_columns: int = 3,
+    timeline_padding: int = 16,
+    font_scale: float = 0.5,
+    font_thickness: int = 1,
+) -> NDArray[np.uint8]:
+    """Render a horizontal timeline describing which AOI was viewed per sample."""
+
+    _ensure_cv2()
+
+    (
+        canvas,
+        winners,
+        color_map,
+        sample_boundaries,
+        timeline_top,
+        timeline_bottom,
+        legend_y_start,
+        legend_height,
+    ) = _initialize_timeline_canvas(
+        tracking_result=tracking_result,
+        width=width,
+        height=height,
+        background_color=background_color,
+        gap_color=gap_color,
+        aoi_colors=aoi_colors,
+        show_legend=show_legend,
+        legend_columns=legend_columns,
+        timeline_padding=timeline_padding,
+    )
+
+    if tracking_result.total_samples > 0:
+        _fill_timeline_bar(
+            canvas,
+            winners,
+            sample_boundaries,
+            color_map,
+            gap_color,
+            timeline_top,
+            timeline_bottom,
+            tracking_result.total_samples,
+        )
+    else:
+        _draw_no_samples_message(canvas, timeline_top, timeline_bottom, font_scale, font_thickness)
+
+    _draw_legend(
+        canvas,
+        color_map,
+        legend_y_start,
+        legend_height,
+        legend_columns,
+        font_scale,
+        font_thickness,
+    )
+
+    return canvas
+
+
+def create_tracking_animation(
+    tracking_result: TrackingResult,
+    width: int = 1000,
+    height: int = 240,
+    *,
+    samples_per_frame: int = 1,
+    aoi_colors: dict[str | int, Color] | None = None,
+    gap_color: Color = (210, 210, 210),
+    background_color: Color = (255, 255, 255),
+    future_color: Color = (235, 235, 235),
+    show_legend: bool = True,
+    legend_columns: int = 3,
+    timeline_padding: int = 16,
+    font_scale: float = 0.5,
+    font_thickness: int = 1,
+    draw_cursor: bool = True,
+    cursor_color: Color = (0, 0, 0),
+    annotate_progress: bool = True,
+) -> list[NDArray[np.uint8]]:
+    """Create animation frames showing timeline progression across the session."""
+
+    _ensure_cv2()
+    if samples_per_frame <= 0:
+        raise ValueError("samples_per_frame must be >= 1")
+
+    (
+        base_canvas,
+        winners,
+        color_map,
+        sample_boundaries,
+        timeline_top,
+        timeline_bottom,
+        legend_y_start,
+        legend_height,
+    ) = _initialize_timeline_canvas(
+        tracking_result=tracking_result,
+        width=width,
+        height=height,
+        background_color=background_color,
+        gap_color=gap_color,
+        aoi_colors=aoi_colors,
+        show_legend=show_legend,
+        legend_columns=legend_columns,
+        timeline_padding=timeline_padding,
+    )
+
+    base_with_legend = base_canvas.copy()
+    _draw_legend(
+        base_with_legend,
+        color_map,
+        legend_y_start,
+        legend_height,
+        legend_columns,
+        font_scale,
+        font_thickness,
+    )
+
+    total_samples = len(winners)
+    if total_samples == 0:
+        _draw_no_samples_message(
+            base_with_legend, timeline_top, timeline_bottom, font_scale, font_thickness
+        )
+        return [base_with_legend]
+
+    frames: list[NDArray[np.uint8]] = []
+    steps: list[int] = []
+    step = samples_per_frame
+    while step < total_samples:
+        steps.append(step)
+        step += samples_per_frame
+    steps.append(total_samples)
+
+    font = cv2.FONT_HERSHEY_SIMPLEX
+    for processed in steps:
+        frame = base_with_legend.copy()
+        _fill_timeline_bar(
+            frame,
+            winners,
+            sample_boundaries,
+            color_map,
+            gap_color,
+            timeline_top,
+            timeline_bottom,
+            processed,
+            future_color=future_color,
+        )
+
+        if draw_cursor and sample_boundaries:
+            if processed == 0:
+                cursor_x = sample_boundaries[0][0]
+            else:
+                cursor_index = min(processed, total_samples - 1)
+                cursor_x = sample_boundaries[cursor_index][1] - 1
+            cursor_x = max(0, min(cursor_x, frame.shape[1] - 1))
+            top = max(0, timeline_top - 4)
+            bottom = min(frame.shape[0] - 1, timeline_bottom + 4)
+            cv2.line(frame, (cursor_x, top), (cursor_x, bottom), cursor_color, 1, cv2.LINE_AA)
+
+        if annotate_progress:
+            text = f"{processed}/{total_samples} samples"
+            (text_w, text_h), _ = cv2.getTextSize(text, font, font_scale, font_thickness)
+            text_x = max(8, frame.shape[1] - text_w - 8)
+            text_y = max(text_h + 8, timeline_top - 8 if timeline_top > text_h else timeline_bottom + text_h + 8)
+            text_y = min(text_y, frame.shape[0] - 8)
+            cv2.putText(
+                frame,
+                text,
+                (text_x, text_y),
+                font,
+                font_scale,
+                cursor_color,
+                font_thickness,
+                cv2.LINE_AA,
+            )
+
+        frames.append(frame)
+
+    return frames

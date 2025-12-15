@@ -12,7 +12,9 @@ rather than skip to prevent regressions from slipping through unnoticed.
 """
 
 import os
+import math
 from pathlib import Path
+from typing import cast
 
 import numpy as np
 import pytest
@@ -30,7 +32,12 @@ except ImportError as e:
     )
 
 from view_arc.tracking.dataclasses import AOI, AOIResult, TrackingResult
-from view_arc.tracking.visualize import draw_attention_heatmap, draw_attention_labels
+from view_arc.tracking.visualize import (
+    create_tracking_animation,
+    draw_attention_heatmap,
+    draw_attention_labels,
+    draw_viewing_timeline,
+)
 
 # Output directory for visual test results
 OUTPUT_DIR = Path(__file__).parent / "output"
@@ -135,6 +142,30 @@ def tracking_result_all_zero() -> TrackingResult:
     )
 
 
+@pytest.fixture
+def tracking_result_timeline() -> TrackingResult:
+    """Create a compact tracking result for timeline visualizations."""
+    return TrackingResult(
+        aoi_results={
+            "a": AOIResult(
+                aoi_id="a",
+                hit_count=2,
+                total_attention_seconds=2.0,
+                hit_timestamps=[1, 2],
+            ),
+            "b": AOIResult(
+                aoi_id="b",
+                hit_count=2,
+                total_attention_seconds=2.0,
+                hit_timestamps=[4, 5],
+            ),
+        },
+        total_samples=6,
+        samples_with_hits=4,
+        samples_no_winner=2,
+    )
+
+
 class TestDrawAttentionHeatmap:
     """Test suite for draw_attention_heatmap function."""
 
@@ -161,6 +192,7 @@ class TestDrawAttentionHeatmap:
     ) -> None:
         """Test that colors vary with hit counts (hot colormap)."""
         # Draw heatmap
+
         result_img = draw_attention_heatmap(
             blank_image, sample_aois, tracking_result_varied, colormap="hot"
         )
@@ -464,3 +496,97 @@ class TestCombinedVisualization:
         # Save output for visual inspection
         output_path = OUTPUT_DIR / "test_combined_heatmap_labels.png"
         cv2.imwrite(str(output_path), img_complete)
+
+
+class TestDrawViewingTimeline:
+    """Tests for the timeline visualization helper."""
+
+    def test_draw_viewing_timeline_basic(
+        self, tracking_result_timeline: TrackingResult
+    ) -> None:
+        """Timeline renders with AOI colors and expected dimensions."""
+        image = draw_viewing_timeline(
+            tracking_result_timeline,
+            width=240,
+            height=140,
+            show_legend=False,
+        )
+
+        assert image.shape == (140, 240, 3)
+        unique_colors = np.unique(image.reshape(-1, 3), axis=0)
+        assert unique_colors.shape[0] > 1  # timeline should not be monochrome
+
+        output_path = OUTPUT_DIR / "test_timeline_basic.png"
+        cv2.imwrite(str(output_path), image)
+
+    def test_draw_viewing_timeline_gaps(
+        self, tracking_result_timeline: TrackingResult
+    ) -> None:
+        """Gap color appears for samples with no AOI winner."""
+        gap_color = (5, 5, 5)
+        image = draw_viewing_timeline(
+            tracking_result_timeline,
+            width=240,
+            height=140,
+            show_legend=False,
+            gap_color=gap_color,
+        )
+
+        gap_mask = np.all(image == np.array(gap_color, dtype=np.uint8), axis=-1)
+        assert gap_mask.any(), "Expected at least one gap segment colored with gap_color"
+
+        output_path = OUTPUT_DIR / "test_timeline_gaps.png"
+        cv2.imwrite(str(output_path), image)
+
+    def test_draw_viewing_timeline_legend(
+        self, tracking_result_all_zero: TrackingResult
+    ) -> None:
+        """Legend shows AOI colors even when the timeline has no hits."""
+        custom_colors = cast(
+            dict[str | int, tuple[int, int, int]],
+            {
+                "shelf_top": (10, 60, 200),
+                "shelf_middle": (40, 200, 60),
+                "shelf_bottom": (200, 80, 80),
+            },
+        )
+        image = draw_viewing_timeline(
+            tracking_result_all_zero,
+            width=260,
+            height=200,
+            aoi_colors=custom_colors,
+            show_legend=True,
+        )
+
+        for color in custom_colors.values():
+            color_mask = np.all(image == np.array(color, dtype=np.uint8), axis=-1)
+            assert color_mask.any(), f"Legend is missing color {color}"
+
+        output_path = OUTPUT_DIR / "test_timeline_legend.png"
+        cv2.imwrite(str(output_path), image)
+
+
+class TestCreateTrackingAnimation:
+    """Tests for animation frame generation."""
+
+    def test_create_tracking_animation_frames(
+        self, tracking_result_timeline: TrackingResult
+    ) -> None:
+        """Animation frames progress from partial to full timeline."""
+        frames = create_tracking_animation(
+            tracking_result_timeline,
+            width=240,
+            height=150,
+            samples_per_frame=2,
+            show_legend=False,
+        )
+
+        expected_frames = math.ceil(tracking_result_timeline.total_samples / 2)
+        assert len(frames) == expected_frames
+        assert frames[0].shape == (150, 240, 3)
+        assert not np.array_equal(frames[0], frames[-1])
+
+        first_path = OUTPUT_DIR / "test_animation_frame_0.png"
+        last_path = OUTPUT_DIR / "test_animation_frame_last.png"
+        cv2.imwrite(str(first_path), frames[0])
+        cv2.imwrite(str(last_path), frames[-1])

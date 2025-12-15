@@ -53,8 +53,10 @@ from view_arc.tracking.algorithm import (
 
 # Visualization functions
 from view_arc.tracking.visualize import (
+    create_tracking_animation,
     draw_attention_heatmap,
     draw_attention_labels,
+    draw_viewing_timeline,
 )
 
 __all__ = [
@@ -79,6 +81,8 @@ __all__ = [
     "compute_attention_seconds",
     "process_single_sample",
     # Visualization
+    "create_tracking_animation",
     "draw_attention_heatmap",
     "draw_attention_labels",
+    "draw_viewing_timeline",
 ]
