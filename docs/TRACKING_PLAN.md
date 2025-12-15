@@ -200,7 +200,7 @@ class TrackingResult:
 def compute_attention_seconds(
     samples: list[ViewerSample] | np.ndarray,
     aois: list[AOI],
-    fov_deg: float = 90.0,
+    field_of_view_deg: float = 90.0,
     max_range: float = 500.0,
     sample_interval: float = 1.0,
     session_config: SessionConfig | None = None,
@@ -673,7 +673,7 @@ samples = [
 result = compute_attention_seconds(
     samples=samples,
     aois=aois,
-    fov_deg=90.0,
+    field_of_view_deg=90.0,
     max_range=500.0,
     sample_interval=1.0,
 )

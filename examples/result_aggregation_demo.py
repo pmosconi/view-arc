@@ -84,7 +84,7 @@ def main() -> None:
     result = compute_attention_seconds(
         samples=samples,
         aois=aois,
-        fov_deg=90.0,
+        field_of_view_deg=90.0,
         max_range=1000.0,
     )
     

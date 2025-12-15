@@ -100,7 +100,7 @@ class TestComputeAttentionAPIAccessible:
         # Check key parameters exist
         assert "samples" in params
         assert "aois" in params
-        assert "fov_deg" in params
+        assert "field_of_view_deg" in params
         assert "max_range" in params
         assert "sample_interval" in params
 
@@ -137,7 +137,7 @@ class TestComputeAttentionMatchesManualLoop:
         """Single sample should match single call to find_largest_obstacle."""
         viewer_pos = (100.0, 100.0)
         viewer_dir = (0.0, 1.0)
-        fov_deg = 90.0
+        field_of_view_deg = 90.0
         max_range = 200.0
 
         # Create sample
@@ -154,14 +154,17 @@ class TestComputeAttentionMatchesManualLoop:
         manual_result = find_largest_obstacle(
             viewer_point=np.array(viewer_pos, dtype=np.float32),
             view_direction=np.array(viewer_dir, dtype=np.float32),
-            field_of_view_deg=fov_deg,
+            field_of_view_deg=field_of_view_deg,
             max_range=max_range,
             obstacle_contours=contours,
         )
 
         # Tracking API call
         tracking_result = compute_attention_seconds(
-            samples=[sample], aois=aois, fov_deg=fov_deg, max_range=max_range
+            samples=[sample],
+            aois=aois,
+            field_of_view_deg=field_of_view_deg,
+            max_range=max_range,
         )
 
         # Results should match
@@ -179,7 +182,7 @@ class TestComputeAttentionMatchesManualLoop:
 
     def test_multiple_samples_matches_manual_loop(self):
         """Multiple samples should match sequential calls to find_largest_obstacle."""
-        fov_deg = 90.0
+        field_of_view_deg = 90.0
         max_range = 200.0
 
         # Create samples - viewer looking at different directions (normalized)
@@ -213,7 +216,7 @@ class TestComputeAttentionMatchesManualLoop:
             result = find_largest_obstacle(
                 viewer_point=np.array(sample.position, dtype=np.float32),
                 view_direction=np.array(sample.direction, dtype=np.float32),
-                field_of_view_deg=fov_deg,
+                field_of_view_deg=field_of_view_deg,
                 max_range=max_range,
                 obstacle_contours=contours,
             )
@@ -223,7 +226,10 @@ class TestComputeAttentionMatchesManualLoop:
 
         # Tracking API call
         tracking_result = compute_attention_seconds(
-            samples=samples, aois=aois, fov_deg=fov_deg, max_range=max_range
+            samples=samples,
+            aois=aois,
+            field_of_view_deg=field_of_view_deg,
+            max_range=max_range,
         )
 
         # Results should match
@@ -235,7 +241,7 @@ class TestComputeAttentionMatchesManualLoop:
 
     def test_no_hits_matches_manual(self):
         """When no AOIs are visible, results should match manual iteration."""
-        fov_deg = 90.0
+        field_of_view_deg = 90.0
         max_range = 200.0
 
         # Sample looking away from AOIs
@@ -252,14 +258,17 @@ class TestComputeAttentionMatchesManualLoop:
         manual_result = find_largest_obstacle(
             viewer_point=np.array(sample.position, dtype=np.float32),
             view_direction=np.array(sample.direction, dtype=np.float32),
-            field_of_view_deg=fov_deg,
+            field_of_view_deg=field_of_view_deg,
             max_range=max_range,
             obstacle_contours=contours,
         )
 
         # Tracking API call
         tracking_result = compute_attention_seconds(
-            samples=[sample], aois=aois, fov_deg=fov_deg, max_range=max_range
+            samples=[sample],
+            aois=aois,
+            field_of_view_deg=field_of_view_deg,
+            max_range=max_range,
         )
 
         # Should both indicate no winner
@@ -297,7 +306,10 @@ class TestComputeAttentionParameterConsistency:
             obstacle_contours=[aoi_right.contour],
         )
         tracking_narrow = compute_attention_seconds(
-            samples=[sample], aois=aois, fov_deg=narrow_fov, max_range=max_range
+            samples=[sample],
+            aois=aois,
+            field_of_view_deg=narrow_fov,
+            max_range=max_range,
         )
 
         # With wide FOV (90 deg), AOI should be visible
@@ -310,7 +322,10 @@ class TestComputeAttentionParameterConsistency:
             obstacle_contours=[aoi_right.contour],
         )
         tracking_wide = compute_attention_seconds(
-            samples=[sample], aois=aois, fov_deg=wide_fov, max_range=max_range
+            samples=[sample],
+            aois=aois,
+            field_of_view_deg=wide_fov,
+            max_range=max_range,
         )
 
         # Results should be consistent
@@ -328,7 +343,7 @@ class TestComputeAttentionParameterConsistency:
         """max_range parameter should filter AOIs same as single-frame API."""
         viewer_pos = (100.0, 100.0)
         viewer_dir = (0.0, 1.0)  # looking UP
-        fov_deg = 90.0
+        field_of_view_deg = 90.0
 
         # AOI far away (distance ~100)
         aoi_far = AOI(id="far", contour=make_square((100, 200), half_size=10))
@@ -340,12 +355,15 @@ class TestComputeAttentionParameterConsistency:
         manual_short = find_largest_obstacle(
             viewer_point=np.array(viewer_pos, dtype=np.float32),
             view_direction=np.array(viewer_dir, dtype=np.float32),
-            field_of_view_deg=fov_deg,
+            field_of_view_deg=field_of_view_deg,
             max_range=short_range,
             obstacle_contours=[aoi_far.contour],
         )
         tracking_short = compute_attention_seconds(
-            samples=[sample], aois=aois, fov_deg=fov_deg, max_range=short_range
+            samples=[sample],
+            aois=aois,
+            field_of_view_deg=field_of_view_deg,
+            max_range=short_range,
         )
 
         # With long max_range (150), AOI should be visible
@@ -353,12 +371,15 @@ class TestComputeAttentionParameterConsistency:
         manual_long = find_largest_obstacle(
             viewer_point=np.array(viewer_pos, dtype=np.float32),
             view_direction=np.array(viewer_dir, dtype=np.float32),
-            field_of_view_deg=fov_deg,
+            field_of_view_deg=field_of_view_deg,
             max_range=long_range,
             obstacle_contours=[aoi_far.contour],
         )
         tracking_long = compute_attention_seconds(
-            samples=[sample], aois=aois, fov_deg=fov_deg, max_range=long_range
+            samples=[sample],
+            aois=aois,
+            field_of_view_deg=field_of_view_deg,
+            max_range=long_range,
         )
 
         # Results should be consistent
@@ -380,7 +401,9 @@ class TestComputeAttentionParameterConsistency:
         tracking_sig = inspect.signature(compute_attention_seconds)
 
         # FOV default should be reasonable (90 degrees is common)
-        tracking_fov_default = tracking_sig.parameters["fov_deg"].default
+        tracking_fov_default = tracking_sig.parameters[
+            "field_of_view_deg"
+        ].default
         assert tracking_fov_default == 90.0
 
         # max_range default should be reasonable (500 is standard)

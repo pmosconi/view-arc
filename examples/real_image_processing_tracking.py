@@ -160,7 +160,7 @@ def main() -> None:
     result = process_single_sample(
         sample=sample,
         aois=aois,
-        fov_deg=field_of_view_deg,
+        field_of_view_deg=field_of_view_deg,
         max_range=max_range,
         return_details=True,
     )

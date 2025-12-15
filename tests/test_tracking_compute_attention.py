@@ -614,12 +614,12 @@ class TestComputeAttentionValidation:
             compute_attention_seconds([sample], [aoi1, aoi2])
 
     def test_invalid_fov_deg(self) -> None:
-        """Invalid fov_deg should raise ValidationError."""
+        """Invalid field_of_view_deg should raise ValidationError."""
         sample = ViewerSample(position=(100.0, 100.0), direction=(0.0, 1.0))
         aoi = AOI(id="shelf", contour=make_square_contour((100.0, 150.0), half_size=15.0))
 
         with pytest.raises(ValidationError, match="fov_deg"):
-            compute_attention_seconds([sample], [aoi], fov_deg=-10.0)
+            compute_attention_seconds([sample], [aoi], field_of_view_deg=-10.0)
 
     def test_invalid_max_range(self) -> None:
         """Invalid max_range should raise ValidationError."""

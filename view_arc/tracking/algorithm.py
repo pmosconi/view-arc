@@ -130,7 +130,7 @@ class SingleSampleResult:
 def process_single_sample(
     sample: ViewerSample,
     aois: list[AOI],
-    fov_deg: float = 90.0,
+    field_of_view_deg: float = 90.0,
     max_range: float = 500.0,
     return_details: bool = False,
 ) -> str | int | None | SingleSampleResult:
@@ -145,7 +145,7 @@ def process_single_sample(
     Args:
         sample: A ViewerSample containing position and direction
         aois: List of AOI objects to check against
-        fov_deg: Field of view in degrees (default 90.0)
+        field_of_view_deg: Field of view in degrees (default 90.0)
         max_range: Maximum detection range in pixels (default 500.0)
         return_details: If True, return SingleSampleResult with full details;
             if False, return just the winning AOI ID or None
@@ -158,7 +158,7 @@ def process_single_sample(
     Raises:
         ValidationError: If sample is not a ViewerSample
         ValidationError: If aois is not a list of AOI objects
-        ValidationError: If fov_deg or max_range are invalid
+        ValidationError: If field_of_view_deg or max_range are invalid
 
     Example:
         >>> sample = ViewerSample(position=(100.0, 100.0), direction=(0.0, 1.0))
@@ -185,7 +185,7 @@ def process_single_sample(
             )
 
     # Validate tracking parameters
-    validate_tracking_params(fov_deg, max_range)
+    validate_tracking_params(fov_deg=field_of_view_deg, max_range=max_range)
 
     # Handle empty AOI list
     if len(aois) == 0:
@@ -210,7 +210,7 @@ def process_single_sample(
     result = find_largest_obstacle(
         viewer_point=viewer_point,
         view_direction=view_direction,
-        field_of_view_deg=fov_deg,
+        field_of_view_deg=field_of_view_deg,
         max_range=max_range,
         obstacle_contours=obstacle_contours,
         return_intervals=return_details,
@@ -294,7 +294,7 @@ class TrackingResultWithConfig(TrackingResult):
 def compute_attention_seconds(
     samples: SampleInput,
     aois: list[AOI],
-    fov_deg: float = 90.0,
+    field_of_view_deg: float = 90.0,
     max_range: float = 500.0,
     sample_interval: float = 1.0,
     session_config: SessionConfig | None = None,
@@ -314,7 +314,7 @@ def compute_attention_seconds(
             - NumPy array of shape (N, 4) where each row is [x, y, dx, dy]
             Direction vectors in numpy input are automatically normalized.
         aois: List of AOI objects defining the areas of interest to track.
-        fov_deg: Field of view in degrees (default 90.0)
+        field_of_view_deg: Field of view in degrees (default 90.0)
         max_range: Maximum detection range in pixels (default 500.0)
         sample_interval: Time interval per sample in seconds (default 1.0).
             Each hit adds this many seconds to the AOI's total_attention_seconds.
@@ -333,7 +333,7 @@ def compute_attention_seconds(
     Raises:
         ValidationError: If samples is not a valid list of ViewerSamples
         ValidationError: If aois contains invalid or duplicate IDs
-        ValidationError: If fov_deg, max_range, or sample_interval are invalid
+        ValidationError: If field_of_view_deg, max_range, or sample_interval are invalid
 
     Invariants:
         - total_samples == len(samples)
@@ -368,7 +368,9 @@ def compute_attention_seconds(
     # Validate inputs
     validate_viewer_samples(normalized_samples, frame_size=frame_size)
     validate_aois(aois)
-    validate_tracking_params(fov_deg, max_range, sample_interval)
+    validate_tracking_params(
+        fov_deg=field_of_view_deg, max_range=max_range, sample_interval=sample_interval
+    )
 
     # Initialize AOI results for all AOIs (even those with 0 hits)
     aoi_results: dict[str | int, AOIResult] = {}
@@ -386,7 +388,7 @@ def compute_attention_seconds(
         winning_id = process_single_sample(
             sample=sample,
             aois=aois,
-            fov_deg=fov_deg,
+            field_of_view_deg=field_of_view_deg,
             max_range=max_range,
             return_details=False,
         )

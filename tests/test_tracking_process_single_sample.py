@@ -102,7 +102,7 @@ class TestProcessSingleSampleOneAOIVisible:
             contour=make_square_contour((100.0, 150.0), half_size=20.0),
         )
 
-        result = process_single_sample(sample, [aoi], fov_deg=90.0, max_range=100.0)
+        result = process_single_sample(sample, [aoi], field_of_view_deg=90.0, max_range=100.0)
 
         assert result == "shelf1"
 
@@ -120,7 +120,7 @@ class TestProcessSingleSampleOneAOIVisible:
             contour=make_square_contour((50.0, 30.0), half_size=15.0),
         )
 
-        result = process_single_sample(sample, [aoi], fov_deg=90.0, max_range=200.0)
+        result = process_single_sample(sample, [aoi], field_of_view_deg=90.0, max_range=200.0)
 
         assert result == "display_A"
 
@@ -136,7 +136,7 @@ class TestProcessSingleSampleOneAOIVisible:
             contour=make_square_contour((100.0, 150.0), half_size=20.0),
         )
 
-        result = process_single_sample(sample, [aoi], fov_deg=90.0, max_range=100.0)
+        result = process_single_sample(sample, [aoi], field_of_view_deg=90.0, max_range=100.0)
 
         assert result == 42
 
@@ -177,7 +177,7 @@ class TestProcessSingleSampleMultipleAOI:
         )
 
         result = process_single_sample(
-            sample, [small_aoi, large_aoi], fov_deg=120.0, max_range=200.0
+            sample, [small_aoi, large_aoi], field_of_view_deg=120.0, max_range=200.0
         )
 
         # The larger AOI should win due to greater angular coverage
@@ -213,7 +213,7 @@ class TestProcessSingleSampleMultipleAOI:
         )
 
         result = process_single_sample(
-            sample, [aoi_left, aoi_center, aoi_right], fov_deg=120.0, max_range=150.0
+            sample, [aoi_left, aoi_center, aoi_right], field_of_view_deg=120.0, max_range=150.0
         )
 
         # Center shelf is closest, so it subtends the largest angle and wins
@@ -240,7 +240,7 @@ class TestProcessSingleSampleMultipleAOI:
         )
 
         result = process_single_sample(
-            sample, [visible_aoi, hidden_aoi], fov_deg=90.0, max_range=200.0
+            sample, [visible_aoi, hidden_aoi], field_of_view_deg=90.0, max_range=200.0
         )
 
         assert result == "visible"
@@ -261,7 +261,7 @@ class TestProcessSingleSampleNoAOIVisible:
             direction=(0.0, 1.0),
         )
 
-        result = process_single_sample(sample, [], fov_deg=90.0, max_range=100.0)
+        result = process_single_sample(sample, [], field_of_view_deg=90.0, max_range=100.0)
 
         assert result is None
 
@@ -280,7 +280,7 @@ class TestProcessSingleSampleNoAOIVisible:
         )
 
         result = process_single_sample(
-            sample, [behind_aoi], fov_deg=90.0, max_range=100.0
+            sample, [behind_aoi], field_of_view_deg=90.0, max_range=100.0
         )
 
         assert result is None
@@ -301,7 +301,7 @@ class TestProcessSingleSampleNoAOIVisible:
 
         # With 90° FOV, half-FOV is 45°
         result = process_single_sample(
-            sample, [aoi], fov_deg=60.0, max_range=200.0
+            sample, [aoi], field_of_view_deg=60.0, max_range=200.0
         )
 
         # The AOI is at ~70° angle from horizontal, outside 30° half-FOV
@@ -329,7 +329,7 @@ class TestProcessSingleSampleMaxRangeFiltering:
             contour=make_square_contour((100.0, 140.0), half_size=15.0),
         )
 
-        result = process_single_sample(sample, [aoi], fov_deg=90.0, max_range=100.0)
+        result = process_single_sample(sample, [aoi], field_of_view_deg=90.0, max_range=100.0)
 
         assert result == "nearby"
 
@@ -347,7 +347,7 @@ class TestProcessSingleSampleMaxRangeFiltering:
         )
 
         # max_range of 100 should not reach AOI at distance 200
-        result = process_single_sample(sample, [aoi], fov_deg=90.0, max_range=100.0)
+        result = process_single_sample(sample, [aoi], field_of_view_deg=90.0, max_range=100.0)
 
         assert result is None
 
@@ -371,7 +371,7 @@ class TestProcessSingleSampleMaxRangeFiltering:
         )
 
         result = process_single_sample(
-            sample, [near_aoi, far_aoi], fov_deg=90.0, max_range=100.0
+            sample, [near_aoi, far_aoi], field_of_view_deg=90.0, max_range=100.0
         )
 
         assert result == "near"
@@ -397,7 +397,7 @@ class TestProcessSingleSamplePreservesAOIId:
             contour=make_square_contour((100.0, 150.0), half_size=20.0),
         )
 
-        result = process_single_sample(sample, [aoi], fov_deg=90.0, max_range=100.0)
+        result = process_single_sample(sample, [aoi], field_of_view_deg=90.0, max_range=100.0)
 
         assert result == "my-special-shelf_123"
         assert isinstance(result, str)
@@ -414,7 +414,7 @@ class TestProcessSingleSamplePreservesAOIId:
             contour=make_square_contour((100.0, 150.0), half_size=20.0),
         )
 
-        result = process_single_sample(sample, [aoi], fov_deg=90.0, max_range=100.0)
+        result = process_single_sample(sample, [aoi], field_of_view_deg=90.0, max_range=100.0)
 
         assert result == 999
         assert isinstance(result, int)
@@ -438,7 +438,7 @@ class TestProcessSingleSamplePreservesAOIId:
 
         aois = [aoi_left, aoi_center, aoi_right]
 
-        result = process_single_sample(sample, aois, fov_deg=90.0, max_range=100.0)
+        result = process_single_sample(sample, aois, field_of_view_deg=90.0, max_range=100.0)
 
         # Center shelf ("shelf_A") is closest and should win
         assert result == "shelf_A"
@@ -466,7 +466,7 @@ class TestProcessSingleSampleReturnDetails:
         )
 
         result = process_single_sample(
-            sample, [aoi], fov_deg=90.0, max_range=100.0, return_details=True
+            sample, [aoi], field_of_view_deg=90.0, max_range=100.0, return_details=True
         )
 
         assert isinstance(result, SingleSampleResult)
@@ -485,7 +485,7 @@ class TestProcessSingleSampleReturnDetails:
         aoi2 = AOI(id="right", contour=make_square_contour((120.0, 150.0), half_size=15.0))
 
         result = process_single_sample(
-            sample, [aoi1, aoi2], fov_deg=90.0, max_range=100.0, return_details=True
+            sample, [aoi1, aoi2], field_of_view_deg=90.0, max_range=100.0, return_details=True
         )
 
         assert isinstance(result, SingleSampleResult)
@@ -506,7 +506,7 @@ class TestProcessSingleSampleReturnDetails:
         aoi_far = AOI(id="far", contour=make_square_contour((130.0, 165.0), half_size=10.0))
 
         result = process_single_sample(
-            sample, [aoi_near, aoi_far], fov_deg=120.0, max_range=150.0, return_details=True
+            sample, [aoi_near, aoi_far], field_of_view_deg=120.0, max_range=150.0, return_details=True
         )
 
         assert isinstance(result, SingleSampleResult)
@@ -529,7 +529,7 @@ class TestProcessSingleSampleReturnDetails:
         )
 
         result = process_single_sample(
-            sample, [aoi], fov_deg=90.0, max_range=100.0, return_details=True
+            sample, [aoi], field_of_view_deg=90.0, max_range=100.0, return_details=True
         )
 
         assert isinstance(result, SingleSampleResult)
@@ -554,7 +554,7 @@ class TestProcessSingleSampleReturnDetails:
         )
 
         result = process_single_sample(
-            sample, [aoi], fov_deg=90.0, max_range=100.0, return_details=True
+            sample, [aoi], field_of_view_deg=90.0, max_range=100.0, return_details=True
         )
 
         assert isinstance(result, SingleSampleResult)
@@ -582,7 +582,7 @@ class TestProcessSingleSampleReturnDetails:
         )
 
         result = process_single_sample(
-            sample, [aoi_winner, aoi_loser], fov_deg=90.0, max_range=150.0, return_details=True
+            sample, [aoi_winner, aoi_loser], field_of_view_deg=90.0, max_range=150.0, return_details=True
         )
 
         assert isinstance(result, SingleSampleResult)
@@ -611,7 +611,7 @@ class TestProcessSingleSampleReturnDetails:
         )
 
         result = process_single_sample(
-            sample, [aoi], fov_deg=90.0, max_range=100.0, return_details=True
+            sample, [aoi], field_of_view_deg=90.0, max_range=100.0, return_details=True
         )
 
         assert isinstance(result, SingleSampleResult)
@@ -632,7 +632,7 @@ class TestProcessSingleSampleValidation:
             process_single_sample(
                 "not a sample",  # type: ignore[arg-type]
                 [],
-                fov_deg=90.0,
+                field_of_view_deg=90.0,
                 max_range=100.0,
             )
 
@@ -644,7 +644,7 @@ class TestProcessSingleSampleValidation:
             process_single_sample(
                 sample,
                 "not a list",  # type: ignore[arg-type]
-                fov_deg=90.0,
+                field_of_view_deg=90.0,
                 max_range=100.0,
             )
 
@@ -656,20 +656,20 @@ class TestProcessSingleSampleValidation:
             process_single_sample(
                 sample,
                 ["not an AOI"],  # type: ignore[list-item]
-                fov_deg=90.0,
+                field_of_view_deg=90.0,
                 max_range=100.0,
             )
 
     def test_invalid_fov_deg(self) -> None:
-        """Invalid fov_deg should raise ValidationError."""
+        """Invalid field_of_view_deg should raise ValidationError."""
         sample = ViewerSample(position=(100.0, 100.0), direction=(1.0, 0.0))
 
         with pytest.raises(ValidationError, match="fov_deg"):
-            process_single_sample(sample, [], fov_deg=-10.0, max_range=100.0)
+            process_single_sample(sample, [], field_of_view_deg=-10.0, max_range=100.0)
 
     def test_invalid_max_range(self) -> None:
         """Invalid max_range should raise ValidationError."""
         sample = ViewerSample(position=(100.0, 100.0), direction=(1.0, 0.0))
 
         with pytest.raises(ValidationError, match="max_range"):
-            process_single_sample(sample, [], fov_deg=90.0, max_range=-50.0)
+            process_single_sample(sample, [], field_of_view_deg=90.0, max_range=-50.0)

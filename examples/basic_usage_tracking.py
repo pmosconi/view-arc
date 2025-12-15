@@ -91,7 +91,7 @@ def main() -> None:
     result = process_single_sample(
         sample=sample,
         aois=aois,
-        fov_deg=fov_deg,
+        field_of_view_deg=fov_deg,
         max_range=max_range,
         return_details=True,
     )
@@ -106,7 +106,7 @@ def main() -> None:
     winner_id = process_single_sample(
         sample=sample,
         aois=aois,
-        fov_deg=fov_deg,
+        field_of_view_deg=fov_deg,
         max_range=max_range,
         return_details=False,
     )
