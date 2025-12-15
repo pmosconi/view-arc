@@ -51,6 +51,12 @@ from view_arc.tracking.algorithm import (
     process_single_sample,
 )
 
+# Visualization functions
+from view_arc.tracking.visualize import (
+    draw_attention_heatmap,
+    draw_attention_labels,
+)
+
 __all__ = [
     # Data structures
     "AOI",
@@ -72,4 +78,7 @@ __all__ = [
     "TrackingResultWithConfig",
     "compute_attention_seconds",
     "process_single_sample",
+    # Visualization
+    "draw_attention_heatmap",
+    "draw_attention_labels",
 ]
