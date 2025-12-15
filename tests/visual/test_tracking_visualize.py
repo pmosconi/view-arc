@@ -166,6 +166,23 @@ def tracking_result_timeline() -> TrackingResult:
     )
 
 
+def _expected_cursor_column(width: int, total_samples: int, processed_samples: int) -> int:
+    """Replicate timeline boundary rounding to predict cursor placement."""
+
+    if width <= 0 or total_samples <= 0:
+        raise ValueError("width and total_samples must be positive")
+
+    processed = max(1, min(processed_samples, total_samples))
+    px_per_sample = width / total_samples
+    start = int(round((processed - 1) * px_per_sample))
+    end = int(round(processed * px_per_sample))
+    if end <= start:
+        end = start + 1
+    start = max(0, min(start, width - 1))
+    end = max(start + 1, min(end, width))
+    return min(end - 1, width - 1)
+
+
 class TestDrawAttentionHeatmap:
     """Test suite for draw_attention_heatmap function."""
 
@@ -590,3 +607,63 @@ class TestCreateTrackingAnimation:
         last_path = OUTPUT_DIR / "test_animation_frame_last.png"
         cv2.imwrite(str(first_path), frames[0])
         cv2.imwrite(str(last_path), frames[-1])
+
+    def test_create_tracking_animation_cursor_alignment(
+        self, tracking_result_timeline: TrackingResult
+    ) -> None:
+        """Cursor column aligns with the last processed sample boundary."""
+        width = 120
+        cursor_color = (0, 0, 0)
+        frames_with_cursor = create_tracking_animation(
+            tracking_result_timeline,
+            width=width,
+            height=120,
+            samples_per_frame=1,
+            show_legend=False,
+            annotate_progress=False,
+            cursor_color=cursor_color,
+        )
+        frames_without_cursor = create_tracking_animation(
+            tracking_result_timeline,
+            width=width,
+            height=120,
+            samples_per_frame=1,
+            show_legend=False,
+            annotate_progress=False,
+            cursor_color=cursor_color,
+            draw_cursor=False,
+        )
+
+        first_frame = frames_with_cursor[0].astype(np.int16)
+        baseline = frames_without_cursor[0].astype(np.int16)
+        diff = np.abs(first_frame - baseline)
+        diff_mask = np.any(diff > 5, axis=2)
+        cursor_columns = np.where(diff_mask.any(axis=0))[0]
+        assert cursor_columns.size > 0, "Cursor line should appear in the first frame"
+
+        expected_column = _expected_cursor_column(width, tracking_result_timeline.total_samples, 1)
+        assert np.any(cursor_columns == expected_column)
+
+    def test_create_tracking_animation_future_color_segments(
+        self, tracking_result_timeline: TrackingResult
+    ) -> None:
+        """Unprocessed samples are tinted with the future_color shade."""
+        width = 120
+        future_color = (12, 34, 56)
+        frames = create_tracking_animation(
+            tracking_result_timeline,
+            width=width,
+            height=120,
+            samples_per_frame=2,
+            show_legend=False,
+            annotate_progress=False,
+            future_color=future_color,
+        )
+
+        first_frame = frames[0]
+        future_mask = np.all(first_frame == np.array(future_color, dtype=np.uint8), axis=2)
+        future_columns = np.where(future_mask.any(axis=0))[0]
+        assert future_columns.size > 0, "Expected future_color shading for unprocessed samples"
+
+        processed_boundary = _expected_cursor_column(width, tracking_result_timeline.total_samples, 2)
+        assert future_columns.min() > processed_boundary

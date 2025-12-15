@@ -779,10 +779,10 @@ def create_tracking_animation(
         )
 
         if draw_cursor and sample_boundaries:
-            if processed == 0:
+            if processed <= 0:
                 cursor_x = sample_boundaries[0][0]
             else:
-                cursor_index = min(processed, total_samples - 1)
+                cursor_index = max(0, min(processed - 1, total_samples - 1))
                 cursor_x = sample_boundaries[cursor_index][1] - 1
             cursor_x = max(0, min(cursor_x, frame.shape[1] - 1))
             top = max(0, timeline_top - 4)
