@@ -438,3 +438,243 @@ class TestComputeAttentionParameterConsistency:
         assert result.aoi_results["left"].hit_count == 0
         assert result.aoi_results["center"].hit_count == 1
         assert result.aoi_results["right"].hit_count == 0
+
+
+# =============================================================================
+# Test: AOI ID Mapping (Step 4.2)
+# =============================================================================
+
+
+class TestAOIIDMapping:
+    """Verify that AOI IDs are correctly mapped and preserved through the pipeline."""
+
+    def test_aoi_id_mapping_integer_ids(self):
+        """Numeric AOI IDs should be preserved through the tracking pipeline."""
+        viewer_pos = (100.0, 100.0)
+        viewer_dir = (0.0, 1.0)  # looking UP
+
+        # Create AOIs with integer IDs
+        aoi1 = AOI(id=1, contour=make_square((50, 150), half_size=15))
+        aoi2 = AOI(id=2, contour=make_square((100, 150), half_size=15))
+        aoi3 = AOI(id=3, contour=make_square((150, 150), half_size=15))
+        aois = [aoi1, aoi2, aoi3]
+
+        # Create samples that will hit different AOIs
+        sqrt2_inv = 1.0 / np.sqrt(2)
+        samples = [
+            ViewerSample(
+                position=viewer_pos, direction=(-sqrt2_inv, sqrt2_inv)
+            ),  # hit left (id=1)
+            ViewerSample(position=viewer_pos, direction=(0.0, 1.0)),  # hit center (id=2)
+            ViewerSample(
+                position=viewer_pos, direction=(sqrt2_inv, sqrt2_inv)
+            ),  # hit right (id=3)
+        ]
+
+        result = compute_attention_seconds(samples=samples, aois=aois)
+
+        # All integer IDs should be preserved in the results
+        assert 1 in result.aoi_results
+        assert 2 in result.aoi_results
+        assert 3 in result.aoi_results
+
+        # Check that the correct AOIs were hit (each should have at least 1 hit)
+        assert result.aoi_results[1].hit_count >= 1  # left was hit
+        assert result.aoi_results[2].hit_count >= 1  # center was hit
+        assert result.aoi_results[3].hit_count >= 1  # right was hit
+
+        # Verify total hits equals samples
+        total_hits = sum(r.hit_count for r in result.aoi_results.values())
+        assert total_hits == len(samples)
+
+    def test_aoi_id_mapping_string_ids(self):
+        """String AOI IDs should be preserved through the tracking pipeline."""
+        viewer_pos = (100.0, 100.0)
+        viewer_dir = (0.0, 1.0)  # looking UP
+
+        # Create AOIs with string IDs
+        aoi1 = AOI(id="shelf_A", contour=make_square((50, 150), half_size=15))
+        aoi2 = AOI(id="shelf_B", contour=make_square((100, 150), half_size=15))
+        aoi3 = AOI(id="shelf_C", contour=make_square((150, 150), half_size=15))
+        aois = [aoi1, aoi2, aoi3]
+
+        # Create samples that will hit different AOIs
+        sqrt2_inv = 1.0 / np.sqrt(2)
+        samples = [
+            ViewerSample(
+                position=viewer_pos, direction=(-sqrt2_inv, sqrt2_inv)
+            ),  # hit shelf_A
+            ViewerSample(position=viewer_pos, direction=(0.0, 1.0)),  # hit shelf_B
+            ViewerSample(
+                position=viewer_pos, direction=(sqrt2_inv, sqrt2_inv)
+            ),  # hit shelf_C
+        ]
+
+        result = compute_attention_seconds(samples=samples, aois=aois)
+
+        # All string IDs should be preserved in the results
+        assert "shelf_A" in result.aoi_results
+        assert "shelf_B" in result.aoi_results
+        assert "shelf_C" in result.aoi_results
+
+        # Check that the correct AOIs were hit
+        assert result.aoi_results["shelf_A"].hit_count >= 1
+        assert result.aoi_results["shelf_B"].hit_count >= 1
+        assert result.aoi_results["shelf_C"].hit_count >= 1
+
+        # Verify total hits equals samples
+        total_hits = sum(r.hit_count for r in result.aoi_results.values())
+        assert total_hits == len(samples)
+
+    def test_aoi_id_mapping_mixed_ids(self):
+        """Heterogeneous AOI IDs (both string and int) should coexist correctly."""
+        viewer_pos = (100.0, 100.0)
+        viewer_dir = (0.0, 1.0)  # looking UP
+
+        # Create AOIs with mixed ID types
+        aoi1 = AOI(id=1, contour=make_square((50, 150), half_size=15))  # int
+        aoi2 = AOI(id="middle", contour=make_square((100, 150), half_size=15))  # str
+        aoi3 = AOI(id=999, contour=make_square((150, 150), half_size=15))  # int
+        aois = [aoi1, aoi2, aoi3]
+
+        # Create samples that will hit different AOIs
+        sqrt2_inv = 1.0 / np.sqrt(2)
+        samples = [
+            ViewerSample(
+                position=viewer_pos, direction=(-sqrt2_inv, sqrt2_inv)
+            ),  # hit id=1
+            ViewerSample(position=viewer_pos, direction=(0.0, 1.0)),  # hit "middle"
+            ViewerSample(
+                position=viewer_pos, direction=(sqrt2_inv, sqrt2_inv)
+            ),  # hit id=999
+            ViewerSample(position=viewer_pos, direction=(0.0, 1.0)),  # hit "middle" again
+        ]
+
+        result = compute_attention_seconds(samples=samples, aois=aois)
+
+        # All mixed IDs should be preserved in the results
+        assert 1 in result.aoi_results
+        assert "middle" in result.aoi_results
+        assert 999 in result.aoi_results
+
+        # Check that IDs have the correct types
+        assert isinstance(result.aoi_results[1].aoi_id, int)
+        assert isinstance(result.aoi_results["middle"].aoi_id, str)
+        assert isinstance(result.aoi_results[999].aoi_id, int)
+
+        # Check that the correct AOIs were hit with expected counts
+        assert result.aoi_results[1].hit_count >= 1
+        assert result.aoi_results["middle"].hit_count >= 2  # hit twice
+        assert result.aoi_results[999].hit_count >= 1
+
+        # Verify total hits equals samples
+        total_hits = sum(r.hit_count for r in result.aoi_results.values())
+        assert total_hits == len(samples)
+
+    def test_aoi_id_stable_across_calls(self):
+        """AOI ID mapping should be deterministic and consistent across repeated calls."""
+        viewer_pos = (100.0, 100.0)
+        viewer_dir = (0.0, 1.0)  # looking UP
+
+        # Create AOIs with mixed IDs
+        aoi1 = AOI(id="A1", contour=make_square((50, 150), half_size=15))
+        aoi2 = AOI(id=42, contour=make_square((100, 150), half_size=15))
+        aoi3 = AOI(id="B2", contour=make_square((150, 150), half_size=15))
+        aois = [aoi1, aoi2, aoi3]
+
+        # Create samples
+        sqrt2_inv = 1.0 / np.sqrt(2)
+        samples = [
+            ViewerSample(position=viewer_pos, direction=(-sqrt2_inv, sqrt2_inv)),
+            ViewerSample(position=viewer_pos, direction=(0.0, 1.0)),
+            ViewerSample(position=viewer_pos, direction=(sqrt2_inv, sqrt2_inv)),
+        ]
+
+        # Call the function multiple times with identical inputs
+        result1 = compute_attention_seconds(samples=samples, aois=aois)
+        result2 = compute_attention_seconds(samples=samples, aois=aois)
+        result3 = compute_attention_seconds(samples=samples, aois=aois)
+
+        # Results should be identical across all calls
+        for aoi_id in ["A1", 42, "B2"]:
+            assert aoi_id in result1.aoi_results
+            assert aoi_id in result2.aoi_results
+            assert aoi_id in result3.aoi_results
+
+            # Hit counts should match
+            count1 = result1.aoi_results[aoi_id].hit_count
+            count2 = result2.aoi_results[aoi_id].hit_count
+            count3 = result3.aoi_results[aoi_id].hit_count
+            assert count1 == count2 == count3, f"AOI {aoi_id} counts differ: {count1}, {count2}, {count3}"
+
+            # Hit timestamps should match
+            timestamps1 = result1.aoi_results[aoi_id].hit_timestamps
+            timestamps2 = result2.aoi_results[aoi_id].hit_timestamps
+            timestamps3 = result3.aoi_results[aoi_id].hit_timestamps
+            assert timestamps1 == timestamps2 == timestamps3, f"AOI {aoi_id} timestamps differ"
+
+    def test_aoi_id_mapping_with_no_hits(self):
+        """AOI IDs should be preserved even when they receive no hits."""
+        viewer_pos = (100.0, 100.0)
+        viewer_dir = (0.0, -1.0)  # looking DOWN (away from AOIs)
+
+        # Create AOIs that are all above the viewer (won't be hit)
+        aoi1 = AOI(id="top_left", contour=make_square((50, 200), half_size=15))
+        aoi2 = AOI(id=100, contour=make_square((100, 200), half_size=15))
+        aoi3 = AOI(id="top_right", contour=make_square((150, 200), half_size=15))
+        aois = [aoi1, aoi2, aoi3]
+
+        # Single sample looking down
+        samples = [ViewerSample(position=viewer_pos, direction=viewer_dir)]
+
+        result = compute_attention_seconds(samples=samples, aois=aois)
+
+        # All IDs should still be present in results
+        assert "top_left" in result.aoi_results
+        assert 100 in result.aoi_results
+        assert "top_right" in result.aoi_results
+
+        # All should have zero hits
+        assert result.aoi_results["top_left"].hit_count == 0
+        assert result.aoi_results[100].hit_count == 0
+        assert result.aoi_results["top_right"].hit_count == 0
+
+        # No samples should have hits
+        assert result.samples_with_hits == 0
+        assert result.samples_no_winner == 1
+
+    def test_aoi_id_mapping_order_independent(self):
+        """Results should be the same regardless of AOI list order."""
+        viewer_pos = (100.0, 100.0)
+        viewer_dir = (0.0, 1.0)  # looking UP
+
+        # Create AOIs
+        aoi1 = AOI(id="first", contour=make_square((50, 150), half_size=15))
+        aoi2 = AOI(id="second", contour=make_square((100, 150), half_size=15))
+        aoi3 = AOI(id="third", contour=make_square((150, 150), half_size=15))
+
+        # Create samples
+        sqrt2_inv = 1.0 / np.sqrt(2)
+        samples = [
+            ViewerSample(position=viewer_pos, direction=(-sqrt2_inv, sqrt2_inv)),
+            ViewerSample(position=viewer_pos, direction=(0.0, 1.0)),
+            ViewerSample(position=viewer_pos, direction=(sqrt2_inv, sqrt2_inv)),
+        ]
+
+        # Test with different orderings
+        result_order1 = compute_attention_seconds(
+            samples=samples, aois=[aoi1, aoi2, aoi3]
+        )
+        result_order2 = compute_attention_seconds(
+            samples=samples, aois=[aoi3, aoi1, aoi2]
+        )
+        result_order3 = compute_attention_seconds(
+            samples=samples, aois=[aoi2, aoi3, aoi1]
+        )
+
+        # Results should be the same regardless of order
+        for aoi_id in ["first", "second", "third"]:
+            count1 = result_order1.aoi_results[aoi_id].hit_count
+            count2 = result_order2.aoi_results[aoi_id].hit_count
+            count3 = result_order3.aoi_results[aoi_id].hit_count
+            assert count1 == count2 == count3, f"AOI {aoi_id} counts differ across orderings"
