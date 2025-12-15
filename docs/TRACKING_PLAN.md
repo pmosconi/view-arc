@@ -327,6 +327,8 @@ def compute_attention_seconds(
 
 ## Phase 4: Integration with Existing API (Day 5)
 
+### Step 4.1: Public API Exposure
+
 - Add `compute_attention_seconds()` as public API function (re-export from tracking)
 - Ensure consistent parameter naming with `find_largest_obstacle()`
 - Add re-export in `view_arc/__init__.py`
