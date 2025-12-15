@@ -367,6 +367,86 @@ class TrackingResult:
         return self.samples_with_hits / self.total_samples
 
     @property
+    def dominant_aoi(self) -> str | int | None:
+        """AOI with the most hits, or None if no hits or tie.
+
+        When multiple AOIs have the same (maximum) hit count, returns None
+        to indicate no clear winner. When no AOI has any hits, returns None.
+
+        Returns:
+            The ID of the dominant AOI, or None if there's a tie or no hits
+        """
+        if self.samples_with_hits == 0:
+            return None
+        
+        # Find maximum hit count
+        max_hits = max(result.hit_count for result in self.aoi_results.values())
+        
+        if max_hits == 0:
+            return None
+        
+        # Count how many AOIs have the maximum hit count
+        aois_with_max = [
+            aoi_id for aoi_id, result in self.aoi_results.items()
+            if result.hit_count == max_hits
+        ]
+        
+        # Return None if there's a tie
+        if len(aois_with_max) > 1:
+            return None
+        
+        return aois_with_max[0]
+
+    @property
+    def engagement_score(self) -> float:
+        """Weighted engagement score based on attention distribution.
+
+        Calculates a score that reflects how concentrated or distributed the
+        viewer's attention was across AOIs. The score is based on the
+        Herfindahl-Hirschman Index (HHI), normalized to [0, 1]:
+        - 1.0 = all attention on a single AOI (maximum concentration)
+        - Close to 0 = attention evenly distributed across many AOIs
+        - 0.0 = no attention recorded
+
+        Returns:
+            Float between 0.0 and 1.0 representing engagement concentration
+
+        Note:
+            For a single AOI, the score is 1.0. For N AOIs with equal attention,
+            the score is 1/N. The score is 0.0 when no hits were recorded.
+        """
+        if self.samples_with_hits == 0:
+            return 0.0
+        
+        # Calculate HHI: sum of squared market shares
+        hhi = sum(
+            (result.hit_count / self.samples_with_hits) ** 2
+            for result in self.aoi_results.values()
+        )
+        
+        return float(hhi)
+
+    @property
+    def session_duration(self) -> float:
+        """Total session duration in seconds.
+
+        Calculated as total_samples × sample_interval (default 1.0 second).
+        This represents the total time span covered by the tracking session.
+
+        Returns:
+            Total session duration in seconds
+
+        Note:
+            This assumes the standard 1.0 second sample interval. If a different
+            interval was used, this calculation would need to account for that
+            (future enhancement with SessionConfig integration).
+        """
+        # Default sample interval is 1.0 second
+        # TODO: When TrackingResultWithConfig is used, get interval from SessionConfig
+        sample_interval = 1.0
+        return self.total_samples * sample_interval
+
+    @property
     def aoi_ids(self) -> list[str | int]:
         """List of all AOI IDs in the result.
 

@@ -515,3 +515,346 @@ def test_viewing_timeline_accepts_valid_indices() -> None:
     assert timeline[9][1] == "shelf_A"
     assert timeline[1][1] is None
     assert timeline[4][1] is None
+
+
+# =============================================================================
+# Tests: Session Statistics (Step 3.2)
+# =============================================================================
+
+
+def test_coverage_ratio_full_coverage() -> None:
+    """Test coverage_ratio when every sample has a hit."""
+    aoi_results: dict[str | int, AOIResult] = {
+        "shelf_A": AOIResult(
+            aoi_id="shelf_A",
+            hit_count=10,
+            total_attention_seconds=10.0,
+            hit_timestamps=list(range(10)),
+        ),
+    }
+    
+    result = TrackingResult(
+        aoi_results=aoi_results,
+        total_samples=10,
+        samples_with_hits=10,
+        samples_no_winner=0,
+    )
+    
+    assert result.coverage_ratio == 1.0
+
+
+def test_coverage_ratio_no_coverage() -> None:
+    """Test coverage_ratio when no AOI has any hits."""
+    aoi_results: dict[str | int, AOIResult] = {
+        "shelf_A": AOIResult(aoi_id="shelf_A", hit_count=0, total_attention_seconds=0.0, hit_timestamps=[]),
+    }
+    
+    result = TrackingResult(
+        aoi_results=aoi_results,
+        total_samples=10,
+        samples_with_hits=0,
+        samples_no_winner=10,
+    )
+    
+    assert result.coverage_ratio == 0.0
+
+
+def test_coverage_ratio_partial() -> None:
+    """Test coverage_ratio for typical partial coverage case."""
+    aoi_results: dict[str | int, AOIResult] = {
+        "shelf_A": AOIResult(
+            aoi_id="shelf_A",
+            hit_count=7,
+            total_attention_seconds=7.0,
+            hit_timestamps=[0, 1, 2, 3, 4, 5, 6],
+        ),
+    }
+    
+    result = TrackingResult(
+        aoi_results=aoi_results,
+        total_samples=20,
+        samples_with_hits=7,
+        samples_no_winner=13,
+    )
+    
+    assert result.coverage_ratio == 0.35
+
+
+def test_coverage_ratio_zero_samples() -> None:
+    """Test coverage_ratio handles zero total_samples gracefully."""
+    aoi_results: dict[str | int, AOIResult] = {}
+    
+    result = TrackingResult(
+        aoi_results=aoi_results,
+        total_samples=0,
+        samples_with_hits=0,
+        samples_no_winner=0,
+    )
+    
+    assert result.coverage_ratio == 0.0
+
+
+def test_dominant_aoi_clear_winner() -> None:
+    """Test dominant_aoi when one AOI has clearly the most hits."""
+    aoi_results: dict[str | int, AOIResult] = {
+        "shelf_A": AOIResult(
+            aoi_id="shelf_A",
+            hit_count=10,
+            total_attention_seconds=10.0,
+            hit_timestamps=list(range(10)),
+        ),
+        "shelf_B": AOIResult(
+            aoi_id="shelf_B",
+            hit_count=5,
+            total_attention_seconds=5.0,
+            hit_timestamps=list(range(10, 15)),
+        ),
+        "shelf_C": AOIResult(
+            aoi_id="shelf_C",
+            hit_count=2,
+            total_attention_seconds=2.0,
+            hit_timestamps=[15, 16],
+        ),
+    }
+    
+    result = TrackingResult(
+        aoi_results=aoi_results,
+        total_samples=20,
+        samples_with_hits=17,
+        samples_no_winner=3,
+    )
+    
+    assert result.dominant_aoi == "shelf_A"
+
+
+def test_dominant_aoi_tie() -> None:
+    """Test dominant_aoi returns None when multiple AOIs tie for most hits."""
+    aoi_results: dict[str | int, AOIResult] = {
+        "shelf_A": AOIResult(
+            aoi_id="shelf_A",
+            hit_count=5,
+            total_attention_seconds=5.0,
+            hit_timestamps=[0, 1, 2, 3, 4],
+        ),
+        "shelf_B": AOIResult(
+            aoi_id="shelf_B",
+            hit_count=5,
+            total_attention_seconds=5.0,
+            hit_timestamps=[5, 6, 7, 8, 9],
+        ),
+        "shelf_C": AOIResult(
+            aoi_id="shelf_C",
+            hit_count=3,
+            total_attention_seconds=3.0,
+            hit_timestamps=[10, 11, 12],
+        ),
+    }
+    
+    result = TrackingResult(
+        aoi_results=aoi_results,
+        total_samples=15,
+        samples_with_hits=13,
+        samples_no_winner=2,
+    )
+    
+    assert result.dominant_aoi is None
+
+
+def test_dominant_aoi_no_hits() -> None:
+    """Test dominant_aoi returns None when no AOI has any hits."""
+    aoi_results: dict[str | int, AOIResult] = {
+        "shelf_A": AOIResult(aoi_id="shelf_A", hit_count=0, total_attention_seconds=0.0, hit_timestamps=[]),
+        "shelf_B": AOIResult(aoi_id="shelf_B", hit_count=0, total_attention_seconds=0.0, hit_timestamps=[]),
+    }
+    
+    result = TrackingResult(
+        aoi_results=aoi_results,
+        total_samples=10,
+        samples_with_hits=0,
+        samples_no_winner=10,
+    )
+    
+    assert result.dominant_aoi is None
+
+
+def test_dominant_aoi_single_aoi_with_hits() -> None:
+    """Test dominant_aoi returns the single AOI when only one has hits."""
+    aoi_results: dict[str | int, AOIResult] = {
+        "shelf_A": AOIResult(
+            aoi_id="shelf_A",
+            hit_count=7,
+            total_attention_seconds=7.0,
+            hit_timestamps=[0, 1, 2, 3, 4, 5, 6],
+        ),
+        "shelf_B": AOIResult(aoi_id="shelf_B", hit_count=0, total_attention_seconds=0.0, hit_timestamps=[]),
+    }
+    
+    result = TrackingResult(
+        aoi_results=aoi_results,
+        total_samples=10,
+        samples_with_hits=7,
+        samples_no_winner=3,
+    )
+    
+    assert result.dominant_aoi == "shelf_A"
+
+
+def test_engagement_score_full_concentration() -> None:
+    """Test engagement_score when all attention is on a single AOI (score = 1.0)."""
+    aoi_results: dict[str | int, AOIResult] = {
+        "shelf_A": AOIResult(
+            aoi_id="shelf_A",
+            hit_count=10,
+            total_attention_seconds=10.0,
+            hit_timestamps=list(range(10)),
+        ),
+        "shelf_B": AOIResult(aoi_id="shelf_B", hit_count=0, total_attention_seconds=0.0, hit_timestamps=[]),
+    }
+    
+    result = TrackingResult(
+        aoi_results=aoi_results,
+        total_samples=15,
+        samples_with_hits=10,
+        samples_no_winner=5,
+    )
+    
+    assert result.engagement_score == 1.0
+
+
+def test_engagement_score_even_distribution() -> None:
+    """Test engagement_score when attention is evenly distributed across AOIs."""
+    # With 3 AOIs each getting 1/3 of attention, HHI = 3 * (1/3)^2 = 3/9 = 1/3
+    aoi_results: dict[str | int, AOIResult] = {
+        "shelf_A": AOIResult(
+            aoi_id="shelf_A",
+            hit_count=3,
+            total_attention_seconds=3.0,
+            hit_timestamps=[0, 1, 2],
+        ),
+        "shelf_B": AOIResult(
+            aoi_id="shelf_B",
+            hit_count=3,
+            total_attention_seconds=3.0,
+            hit_timestamps=[3, 4, 5],
+        ),
+        "shelf_C": AOIResult(
+            aoi_id="shelf_C",
+            hit_count=3,
+            total_attention_seconds=3.0,
+            hit_timestamps=[6, 7, 8],
+        ),
+    }
+    
+    result = TrackingResult(
+        aoi_results=aoi_results,
+        total_samples=12,
+        samples_with_hits=9,
+        samples_no_winner=3,
+    )
+    
+    expected_score = 1.0 / 3.0  # Each AOI has 1/3 share, HHI = 3 * (1/3)^2
+    assert abs(result.engagement_score - expected_score) < 1e-10
+
+
+def test_engagement_score_no_hits() -> None:
+    """Test engagement_score returns 0.0 when no hits are recorded."""
+    aoi_results: dict[str | int, AOIResult] = {
+        "shelf_A": AOIResult(aoi_id="shelf_A", hit_count=0, total_attention_seconds=0.0, hit_timestamps=[]),
+        "shelf_B": AOIResult(aoi_id="shelf_B", hit_count=0, total_attention_seconds=0.0, hit_timestamps=[]),
+    }
+    
+    result = TrackingResult(
+        aoi_results=aoi_results,
+        total_samples=10,
+        samples_with_hits=0,
+        samples_no_winner=10,
+    )
+    
+    assert result.engagement_score == 0.0
+
+
+def test_engagement_score_moderate_concentration() -> None:
+    """Test engagement_score for moderate concentration (one AOI dominates but not completely)."""
+    # shelf_A: 7/10 = 0.7, shelf_B: 3/10 = 0.3
+    # HHI = 0.7^2 + 0.3^2 = 0.49 + 0.09 = 0.58
+    aoi_results: dict[str | int, AOIResult] = {
+        "shelf_A": AOIResult(
+            aoi_id="shelf_A",
+            hit_count=7,
+            total_attention_seconds=7.0,
+            hit_timestamps=[0, 1, 2, 3, 4, 5, 6],
+        ),
+        "shelf_B": AOIResult(
+            aoi_id="shelf_B",
+            hit_count=3,
+            total_attention_seconds=3.0,
+            hit_timestamps=[7, 8, 9],
+        ),
+    }
+    
+    result = TrackingResult(
+        aoi_results=aoi_results,
+        total_samples=15,
+        samples_with_hits=10,
+        samples_no_winner=5,
+    )
+    
+    expected_score = 0.7**2 + 0.3**2  # 0.49 + 0.09 = 0.58
+    assert abs(result.engagement_score - expected_score) < 1e-10
+
+
+def test_session_duration_calculation() -> None:
+    """Test session_duration calculates total time correctly (total_samples × 1s)."""
+    aoi_results: dict[str | int, AOIResult] = {
+        "shelf_A": AOIResult(
+            aoi_id="shelf_A",
+            hit_count=10,
+            total_attention_seconds=10.0,
+            hit_timestamps=list(range(10)),
+        ),
+    }
+    
+    result = TrackingResult(
+        aoi_results=aoi_results,
+        total_samples=60,
+        samples_with_hits=10,
+        samples_no_winner=50,
+    )
+    
+    # 60 samples × 1 second = 60 seconds
+    assert result.session_duration == 60.0
+
+
+def test_session_duration_zero_samples() -> None:
+    """Test session_duration returns 0.0 for zero samples."""
+    aoi_results: dict[str | int, AOIResult] = {}
+    
+    result = TrackingResult(
+        aoi_results=aoi_results,
+        total_samples=0,
+        samples_with_hits=0,
+        samples_no_winner=0,
+    )
+    
+    assert result.session_duration == 0.0
+
+
+def test_session_duration_single_sample() -> None:
+    """Test session_duration for single sample is 1 second."""
+    aoi_results: dict[str | int, AOIResult] = {
+        "shelf_A": AOIResult(
+            aoi_id="shelf_A",
+            hit_count=1,
+            total_attention_seconds=1.0,
+            hit_timestamps=[0],
+        ),
+    }
+    
+    result = TrackingResult(
+        aoi_results=aoi_results,
+        total_samples=1,
+        samples_with_hits=1,
+        samples_no_winner=0,
+    )
+    
+    assert result.session_duration == 1.0
