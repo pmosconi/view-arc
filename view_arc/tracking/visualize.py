@@ -238,6 +238,7 @@ def draw_attention_labels(
     image: NDArray[np.uint8],
     aois: list[AOI],
     tracking_result: TrackingResult,
+    show_aoi_id: bool = True,
     show_hit_count: bool = True,
     show_percentage: bool = True,
     show_seconds: bool = False,
@@ -256,6 +257,7 @@ def draw_attention_labels(
         image: Input image (H, W, 3) BGR format
         aois: List of AOI objects to annotate
         tracking_result: TrackingResult containing hit counts for each AOI
+        show_aoi_id: If True, show AOI ID in the label
         show_hit_count: If True, show raw hit count
         show_percentage: If True, show percentage of total attention
         show_seconds: If True, show total attention seconds
@@ -298,8 +300,10 @@ def draw_attention_labels(
 
         # Build label text
         label_parts = []
+        if show_aoi_id:
+            label_parts.append(f"AOI {aoi.id}")
         if show_hit_count:
-            label_parts.append(f"{hit_count}")
+            label_parts.append(f"{hit_count}s")
         if show_percentage:
             percentage = (hit_count / total_hits) * 100
             label_parts.append(f"{percentage:.1f}%")
