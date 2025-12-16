@@ -840,11 +840,17 @@ def draw_session_frame(
     - Running hit counts for each AOI
     - Optional progress indicator
 
+    **Important**: The `winner_id` must correspond to an AOI in the `aois` list.
+    If `winner_id` is not None but doesn't exist in `aois`, a ValueError is raised
+    to prevent misleading visualizations where a winner is reported but not shown.
+
     Args:
         image: Input image (H, W, 3) BGR format
         sample: Current ViewerSample being visualized
-        aois: List of AOI objects to display
-        winner_id: ID of the currently winning AOI (None if no winner)
+        aois: List of AOI objects to display. Must contain all AOIs referenced
+              in winner_id and running_hit_counts.
+        winner_id: ID of the currently winning AOI (None if no winner).
+                   Must exist in aois if not None.
         running_hit_counts: Current accumulated hit counts per AOI ID
         field_of_view_deg: Field of view in degrees (default 90.0)
         max_range: Maximum detection range in pixels (default 500.0)
@@ -859,6 +865,9 @@ def draw_session_frame(
 
     Returns:
         Image with session replay frame overlay (modified copy)
+
+    Raises:
+        ValueError: If winner_id is not None and doesn't exist in aois
 
     Example:
         >>> sample = ViewerSample(position=(400.0, 300.0), direction=(0.0, -1.0))
@@ -875,6 +884,19 @@ def draw_session_frame(
     # Validate sample type
     if not isinstance(sample, ViewerSample):
         raise TypeError(f"sample must be a ViewerSample, got {type(sample).__name__}")
+
+    # Validate that winner_id exists in aois (if not None)
+    if winner_id is not None:
+        aoi_ids = {aoi.id for aoi in aois}
+        if winner_id not in aoi_ids:
+            # Convert IDs to strings for display to handle mixed str/int types
+            aoi_ids_display = ", ".join(sorted(str(id) for id in aoi_ids))
+            raise ValueError(
+                f"winner_id '{winner_id}' not found in aois. "
+                f"Available AOI IDs: [{aoi_ids_display}]. "
+                f"This typically means the AOI list was filtered after computing winners. "
+                f"Ensure aois contains all AOIs referenced in winner_id."
+            )
 
     # Make a copy to avoid modifying the original
     output = image.copy()
@@ -1017,11 +1039,21 @@ def generate_session_replay(
     throughout the session. Each frame shows the current viewer position,
     view arc, which AOI is being viewed (if any), and running hit counts.
 
+    **Important**: All winner IDs in `winner_ids` must correspond to AOIs in the
+    `aois` list. This function validates that every non-None winner exists in `aois`
+    before generating frames to prevent misleading visualizations.
+
+    **Common Pitfall**: If you filter the AOI list (e.g., to show only top AOIs),
+    ensure winner_ids are also filtered or remapped to None for AOIs not in the
+    filtered list. Otherwise, this function will raise a ValueError.
+
     Args:
         image: Base image (H, W, 3) BGR format
         samples: List of ViewerSamples in chronological order
-        aois: List of AOI objects to visualize
-        winner_ids: List of winning AOI IDs for each sample (parallel to samples)
+        aois: List of AOI objects to visualize. Must contain all AOIs referenced
+              in winner_ids.
+        winner_ids: List of winning AOI IDs for each sample (parallel to samples).
+                    Each non-None ID must exist in aois.
         field_of_view_deg: Field of view in degrees (default 90.0)
         max_range: Maximum detection range in pixels (default 500.0)
         wedge_color: BGR color for the FOV wedge outline
@@ -1036,6 +1068,7 @@ def generate_session_replay(
 
     Raises:
         ValueError: If samples and winner_ids have different lengths
+        ValueError: If any non-None winner_id doesn't exist in aois
 
     Example:
         >>> samples = [ViewerSample(...), ViewerSample(...), ...]
@@ -1059,6 +1092,21 @@ def generate_session_replay(
 
     if len(samples) == 0:
         return []
+
+    # Validate that all winner_ids exist in aois
+    aoi_ids = {aoi.id for aoi in aois}
+    invalid_winners = {w for w in winner_ids if w is not None and w not in aoi_ids}
+    if invalid_winners:
+        # Convert IDs to strings for display to handle mixed str/int types
+        invalid_display = ", ".join(sorted(str(w) for w in invalid_winners))
+        available_display = ", ".join(sorted(str(id) for id in aoi_ids))
+        raise ValueError(
+            f"Found {len(invalid_winners)} winner_id(s) not in aois: [{invalid_display}]. "
+            f"Available AOI IDs: [{available_display}]. "
+            f"This typically means the AOI list was filtered after computing winners. "
+            f"Ensure aois contains all AOIs referenced in winner_ids, or remap "
+            f"filtered winners to None."
+        )
 
     # Initialize running hit counts
     running_hit_counts: dict[str | int, int] = {aoi.id: 0 for aoi in aois}

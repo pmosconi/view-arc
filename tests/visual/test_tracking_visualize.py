@@ -714,6 +714,21 @@ class TestSessionReplay:
         # Verify frame is not blank (has been modified)
         assert not np.array_equal(frame, blank_image)
 
+        # Verify winner color is present (shelf_top should be highlighted in blue)
+        # Winner color is (0, 0, 255) BGR = blue
+        winner_color = np.array([0, 0, 255], dtype=np.uint8)
+        # Check for winner color in the shelf_top region (y: 50-150, x: 100-700)
+        shelf_top_region = frame[50:150, 100:700, :]
+        winner_pixels = np.all(shelf_top_region == winner_color, axis=2)
+        assert np.any(winner_pixels), "Winner color not found in shelf_top region"
+
+        # Verify progress text is present
+        # Progress should be "Sample 8/10" (sample_index + 1)
+        # Check top-left area for dark (text background) pixels
+        progress_region = frame[0:40, 0:200, :]
+        dark_pixels = np.all(progress_region < 50, axis=2)
+        assert np.any(dark_pixels), "Progress text background not found"
+
         # Save for visual inspection
         output_path = OUTPUT_DIR / "test_session_frame_components.png"
         cv2.imwrite(str(output_path), frame)
@@ -900,3 +915,212 @@ class TestSessionReplay:
         last_path = OUTPUT_DIR / "test_session_replay_counts_frame_4.png"
         cv2.imwrite(str(middle_path), frames[2])
         cv2.imwrite(str(last_path), frames[4])
+
+    def test_generate_session_replay_mixed_id_types(
+        self, blank_image: np.ndarray
+    ) -> None:
+        """Verify session replay works with mixed string and integer AOI IDs.
+        
+        Regression test for sorted() TypeError when AOI IDs mix strings and ints.
+        """
+        from view_arc.tracking.dataclasses import ViewerSample, AOI
+        from view_arc.tracking.visualize import generate_session_replay
+
+        # Create AOIs with mixed ID types (string and int)
+        mixed_aois = [
+            AOI(id="shelf_a", contour=np.array([[100, 100], [200, 100], [200, 200], [100, 200]], dtype=np.float32)),
+            AOI(id=1, contour=np.array([[300, 100], [400, 100], [400, 200], [300, 200]], dtype=np.float32)),
+            AOI(id="shelf_b", contour=np.array([[100, 300], [200, 300], [200, 400], [100, 400]], dtype=np.float32)),
+            AOI(id=2, contour=np.array([[300, 300], [400, 300], [400, 400], [300, 400]], dtype=np.float32)),
+        ]
+
+        samples = [
+            ViewerSample(position=(150.0, 50.0), direction=(0.0, 1.0)),
+            ViewerSample(position=(350.0, 50.0), direction=(0.0, 1.0)),
+            ViewerSample(position=(150.0, 250.0), direction=(0.0, 1.0)),
+            ViewerSample(position=(350.0, 250.0), direction=(0.0, 1.0)),
+        ]
+
+        # Mix string and int IDs in winner_ids
+        winner_ids: list[str | int | None] = ["shelf_a", 1, "shelf_b", 2]
+
+        # Should not raise TypeError when sorting for error messages
+        frames = generate_session_replay(
+            image=blank_image,
+            samples=samples,
+            aois=mixed_aois,
+            winner_ids=winner_ids,
+        )
+
+        assert len(frames) == 4
+        for frame in frames:
+            assert frame.shape == blank_image.shape
+
+    def test_draw_session_frame_mixed_id_validation_error(
+        self, blank_image: np.ndarray
+    ) -> None:
+        """Verify validation error message works with mixed ID types.
+        
+        Regression test: ensure sorted() doesn't crash when displaying
+        error message for mixed string/int AOI IDs.
+        """
+        from view_arc.tracking.dataclasses import ViewerSample, AOI
+        from view_arc.tracking.visualize import draw_session_frame
+
+        # Create AOIs with mixed ID types
+        mixed_aois = [
+            AOI(id="shelf_a", contour=np.array([[100, 100], [200, 100], [200, 200], [100, 200]], dtype=np.float32)),
+            AOI(id=42, contour=np.array([[300, 100], [400, 100], [400, 200], [300, 200]], dtype=np.float32)),
+        ]
+
+        sample = ViewerSample(position=(250.0, 150.0), direction=(0.0, 1.0))
+        running_hit_counts: dict[str | int, int] = {"shelf_a": 5, 42: 3}
+
+        # Try to reference a missing AOI - should get clear error, not TypeError
+        with pytest.raises(ValueError, match="winner_id 'missing' not found in aois"):
+            draw_session_frame(
+                image=blank_image,
+                sample=sample,
+                aois=mixed_aois,
+                winner_id="missing",
+                running_hit_counts=running_hit_counts,
+            )
+
+    def test_generate_session_replay_mixed_id_validation_error(
+        self, blank_image: np.ndarray
+    ) -> None:
+        """Verify validation error message works with mixed ID types in batch.
+        
+        Regression test: ensure sorted() doesn't crash when displaying
+        error message for mixed string/int AOI IDs in generate_session_replay.
+        """
+        from view_arc.tracking.dataclasses import ViewerSample, AOI
+        from view_arc.tracking.visualize import generate_session_replay
+
+        # Create AOIs with mixed ID types
+        mixed_aois = [
+            AOI(id="shelf_a", contour=np.array([[100, 100], [200, 100], [200, 200], [100, 200]], dtype=np.float32)),
+            AOI(id=99, contour=np.array([[300, 100], [400, 100], [400, 200], [300, 200]], dtype=np.float32)),
+        ]
+
+        samples = [
+            ViewerSample(position=(150.0, 50.0), direction=(0.0, 1.0)),
+            ViewerSample(position=(350.0, 50.0), direction=(0.0, 1.0)),
+        ]
+
+        # Include missing IDs of both types
+        winner_ids: list[str | int | None] = ["missing_str", 404]
+
+        # Should get clear ValueError, not TypeError from sorting
+        with pytest.raises(ValueError, match="Found 2 winner_id\\(s\\) not in aois"):
+            generate_session_replay(
+                image=blank_image,
+                samples=samples,
+                aois=mixed_aois,
+                winner_ids=winner_ids,
+            )
+
+    def test_draw_session_frame_invalid_winner(
+        self, blank_image: np.ndarray, sample_aois: list[AOI]
+    ) -> None:
+        """Verify error when winner_id doesn't exist in aois."""
+        from view_arc.tracking.dataclasses import ViewerSample
+        from view_arc.tracking.visualize import draw_session_frame
+
+        sample = ViewerSample(position=(400.0, 300.0), direction=(0.0, -1.0))
+        running_hit_counts: dict[str | int, int] = {"shelf_top": 5}
+
+        # Try to draw frame with winner_id not in aois
+        with pytest.raises(ValueError, match="winner_id 'unknown_shelf' not found in aois"):
+            draw_session_frame(
+                image=blank_image,
+                sample=sample,
+                aois=sample_aois,
+                winner_id="unknown_shelf",
+                running_hit_counts=running_hit_counts,
+            )
+
+    def test_generate_session_replay_invalid_winners(
+        self, blank_image: np.ndarray, sample_aois: list[AOI]
+    ) -> None:
+        """Verify error when winner_ids contain IDs not in aois."""
+        from view_arc.tracking.dataclasses import ViewerSample
+        from view_arc.tracking.visualize import generate_session_replay
+
+        samples = [
+            ViewerSample(position=(400.0, 300.0), direction=(0.0, -1.0)),
+            ViewerSample(position=(400.0, 300.0), direction=(0.0, -1.0)),
+        ]
+
+        # Include an invalid winner ID
+        winner_ids: list[str | int | None] = ["shelf_top", "invalid_aoi"]
+
+        with pytest.raises(
+            ValueError, match="Found 1 winner_id\\(s\\) not in aois: \\[invalid_aoi\\]"
+        ):
+            generate_session_replay(
+                image=blank_image, samples=samples, aois=sample_aois, winner_ids=winner_ids
+            )
+
+    def test_generate_session_replay_filtered_aois(
+        self, blank_image: np.ndarray, sample_aois: list[AOI]
+    ) -> None:
+        """Verify error when AOI list is filtered but winner_ids reference filtered AOIs."""
+        from view_arc.tracking.dataclasses import ViewerSample
+        from view_arc.tracking.visualize import generate_session_replay
+
+        samples = [
+            ViewerSample(position=(400.0, 300.0), direction=(0.0, -1.0)),
+            ViewerSample(position=(400.0, 300.0), direction=(0.0, -1.0)),
+        ]
+
+        # Winner IDs reference all shelves
+        winner_ids: list[str | int | None] = ["shelf_top", "shelf_bottom"]
+
+        # But only provide subset of AOIs (filtered list)
+        filtered_aois = [sample_aois[0]]  # Only shelf_top
+
+        # Should fail because shelf_bottom is not in filtered list
+        with pytest.raises(
+            ValueError, match="winner_id\\(s\\) not in aois.*shelf_bottom"
+        ):
+            generate_session_replay(
+                image=blank_image,
+                samples=samples,
+                aois=filtered_aois,
+                winner_ids=winner_ids,
+            )
+
+    def test_generate_session_replay_progress_indicators(
+        self, blank_image: np.ndarray, sample_aois: list[AOI]
+    ) -> None:
+        """Verify progress indicators increment correctly across frames."""
+        from view_arc.tracking.dataclasses import ViewerSample
+        from view_arc.tracking.visualize import generate_session_replay
+
+        samples = [
+            ViewerSample(position=(400.0, 300.0), direction=(0.0, -1.0)),
+            ViewerSample(position=(400.0, 300.0), direction=(0.0, -1.0)),
+            ViewerSample(position=(400.0, 300.0), direction=(0.0, -1.0)),
+        ]
+
+        winner_ids: list[str | int | None] = ["shelf_top", "shelf_top", "shelf_top"]
+
+        frames = generate_session_replay(
+            image=blank_image,
+            samples=samples,
+            aois=sample_aois,
+            winner_ids=winner_ids,
+            show_progress=True,
+        )
+
+        # Check that frames differ in progress region (top-left)
+        # Extract progress regions
+        progress_region_1 = frames[0][0:40, 0:200, :]
+        progress_region_2 = frames[1][0:40, 0:200, :]
+        progress_region_3 = frames[2][0:40, 0:200, :]
+
+        # Progress regions should be different across frames
+        assert not np.array_equal(progress_region_1, progress_region_2)
+        assert not np.array_equal(progress_region_2, progress_region_3)
+

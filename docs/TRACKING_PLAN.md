@@ -405,7 +405,7 @@ def compute_attention_seconds(
 
 ---
 
-### Step 5.3: Session Replay Visualization
+### Step 5.3: Session Replay Visualization ✅ COMPLETED
 **Implementation in `view_arc/visualize.py`:**
 - `draw_session_frame()` - single frame of a session replay showing:
   - Current viewer position
@@ -414,14 +414,38 @@ def compute_attention_seconds(
   - Running hit counts
 - `generate_session_replay()` - produce sequence of frames for video export
 
+**Enhanced Validation (Security & Data Integrity):**
+- Both functions validate that `winner_id` exists in the provided `aois` list
+- Fails fast with clear `ValueError` when winner references missing AOI
+- Prevents misleading visualizations where algorithm reports winner but UI shows nothing
+- Helpful error messages guide users to fix mismatched AOI lists (common when filtering)
+
 **Tests to Create:**
 - `tests/visual/test_tracking_visualize.py` (continued):
-  - `test_draw_session_frame_components()` - all elements present
+  - `test_draw_session_frame_components()` - all elements present, winner color verified
   - `test_generate_session_replay_frame_count()` - correct number of frames
 
+**Tests Created:**
+- `tests/visual/test_tracking_visualize.py` (11 tests total):
+  - `test_draw_session_frame_components()` - verifies winner color pixels and progress text
+  - `test_draw_session_frame_no_winner()` - handles None winner
+  - `test_draw_session_frame_minimal_options()` - minimal rendering
+  - `test_draw_session_frame_invalid_winner()` - validates winner exists in aois (**NEW**)
+  - `test_generate_session_replay_frame_count()` - correct frame count
+  - `test_generate_session_replay_empty_samples()` - edge case
+  - `test_generate_session_replay_length_mismatch()` - input validation
+  - `test_generate_session_replay_running_counts_accuracy()` - count accumulation
+  - `test_generate_session_replay_invalid_winners()` - validates all winners exist (**NEW**)
+  - `test_generate_session_replay_filtered_aois()` - catches filtered AOI mismatch (**NEW**)
+  - `test_generate_session_replay_progress_indicators()` - verifies progress changes (**NEW**)
+
 **Validation:**
-- Replay frames are self-consistent
-- Viewer position matches sample data
+- ✅ Replay frames are self-consistent
+- ✅ Viewer position matches sample data
+- ✅ Winner validation prevents silent failures
+- ✅ Automated assertions check winner color, progress indicators
+- ✅ Tests catch visual regressions (not just "image changed")
+- ✅ Clear documentation on AOI/winner_id consistency requirement
 
 ---
 
