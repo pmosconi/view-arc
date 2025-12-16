@@ -667,3 +667,236 @@ class TestCreateTrackingAnimation:
 
         processed_boundary = _expected_cursor_column(width, tracking_result_timeline.total_samples, 2)
         assert future_columns.min() > processed_boundary
+
+
+class TestSessionReplay:
+    """Tests for session replay visualization (Step 5.3)."""
+
+    def test_draw_session_frame_components(
+        self, blank_image: np.ndarray, sample_aois: list[AOI]
+    ) -> None:
+        """Verify all components are present in a session frame.
+
+        This test checks that draw_session_frame includes:
+        - Current viewer position
+        - Current view arc
+        - Current winner highlighted
+        - Running hit counts
+        """
+        from view_arc.tracking.dataclasses import ViewerSample
+        from view_arc.tracking.visualize import draw_session_frame
+
+        # Create a viewer sample
+        sample = ViewerSample(position=(400.0, 300.0), direction=(0.0, -1.0))
+
+        # Simulate running hit counts
+        running_hit_counts: dict[str | int, int] = {"shelf_top": 5, "shelf_middle": 3, "shelf_bottom": 0}
+
+        # Draw frame with shelf_top as winner
+        frame = draw_session_frame(
+            image=blank_image,
+            sample=sample,
+            aois=sample_aois,
+            winner_id="shelf_top",
+            running_hit_counts=running_hit_counts,
+            field_of_view_deg=90.0,
+            max_range=200.0,
+            sample_index=7,
+            total_samples=10,
+            show_hit_counts=True,
+            show_progress=True,
+        )
+
+        # Verify frame was created
+        assert frame.shape == blank_image.shape
+        assert frame.dtype == np.uint8
+
+        # Verify frame is not blank (has been modified)
+        assert not np.array_equal(frame, blank_image)
+
+        # Save for visual inspection
+        output_path = OUTPUT_DIR / "test_session_frame_components.png"
+        cv2.imwrite(str(output_path), frame)
+
+    def test_draw_session_frame_no_winner(
+        self, blank_image: np.ndarray, sample_aois: list[AOI]
+    ) -> None:
+        """Verify frame handles case with no winner correctly."""
+        from view_arc.tracking.dataclasses import ViewerSample
+        from view_arc.tracking.visualize import draw_session_frame
+
+        sample = ViewerSample(position=(50.0, 50.0), direction=(1.0, 0.0))
+        running_hit_counts: dict[str | int, int] = {"shelf_top": 0, "shelf_middle": 0, "shelf_bottom": 0}
+
+        # Draw frame with no winner
+        frame = draw_session_frame(
+            image=blank_image,
+            sample=sample,
+            aois=sample_aois,
+            winner_id=None,
+            running_hit_counts=running_hit_counts,
+            field_of_view_deg=90.0,
+            max_range=200.0,
+        )
+
+        assert frame.shape == blank_image.shape
+        assert not np.array_equal(frame, blank_image)
+
+        output_path = OUTPUT_DIR / "test_session_frame_no_winner.png"
+        cv2.imwrite(str(output_path), frame)
+
+    def test_draw_session_frame_minimal_options(
+        self, blank_image: np.ndarray, sample_aois: list[AOI]
+    ) -> None:
+        """Verify frame can be drawn with minimal options."""
+        from view_arc.tracking.dataclasses import ViewerSample
+        from view_arc.tracking.visualize import draw_session_frame
+
+        sample = ViewerSample(position=(400.0, 300.0), direction=(0.0, -1.0))
+        running_hit_counts: dict[str | int, int] = {"shelf_top": 10, "shelf_middle": 5, "shelf_bottom": 2}
+
+        # Draw frame without progress and hit counts
+        frame = draw_session_frame(
+            image=blank_image,
+            sample=sample,
+            aois=sample_aois,
+            winner_id="shelf_middle",
+            running_hit_counts=running_hit_counts,
+            show_hit_counts=False,
+            show_progress=False,
+        )
+
+        assert frame.shape == blank_image.shape
+        assert not np.array_equal(frame, blank_image)
+
+        output_path = OUTPUT_DIR / "test_session_frame_minimal.png"
+        cv2.imwrite(str(output_path), frame)
+
+    def test_generate_session_replay_frame_count(
+        self, blank_image: np.ndarray, sample_aois: list[AOI]
+    ) -> None:
+        """Verify correct number of frames are generated."""
+        from view_arc.tracking.dataclasses import ViewerSample
+        from view_arc.tracking.visualize import generate_session_replay
+
+        # Create a sequence of samples
+        samples = [
+            ViewerSample(position=(400.0, 300.0), direction=(0.0, -1.0)),
+            ViewerSample(position=(400.0, 300.0), direction=(0.0, -1.0)),
+            ViewerSample(position=(400.0, 300.0), direction=(0.0, -1.0)),
+            ViewerSample(position=(350.0, 300.0), direction=(-0.707, -0.707)),
+            ViewerSample(position=(350.0, 300.0), direction=(-0.707, -0.707)),
+        ]
+
+        # Corresponding winners
+        winner_ids: list[str | int | None] = [
+            "shelf_top",
+            "shelf_top",
+            "shelf_top",
+            "shelf_middle",
+            "shelf_middle",
+        ]
+
+        # Generate replay
+        frames = generate_session_replay(
+            image=blank_image,
+            samples=samples,
+            aois=sample_aois,
+            winner_ids=winner_ids,
+            field_of_view_deg=90.0,
+            max_range=200.0,
+        )
+
+        # Verify frame count matches sample count
+        assert len(frames) == len(samples)
+        assert len(frames) == 5
+
+        # Verify all frames have correct shape
+        for frame in frames:
+            assert frame.shape == blank_image.shape
+            assert frame.dtype == np.uint8
+
+        # Verify frames are different (progression)
+        assert not np.array_equal(frames[0], frames[-1])
+
+        # Save first and last frames for visual inspection
+        first_path = OUTPUT_DIR / "test_session_replay_frame_0.png"
+        last_path = OUTPUT_DIR / "test_session_replay_frame_4.png"
+        cv2.imwrite(str(first_path), frames[0])
+        cv2.imwrite(str(last_path), frames[-1])
+
+    def test_generate_session_replay_empty_samples(
+        self, blank_image: np.ndarray, sample_aois: list[AOI]
+    ) -> None:
+        """Verify empty sample list returns empty frame list."""
+        from view_arc.tracking.visualize import generate_session_replay
+
+        frames = generate_session_replay(
+            image=blank_image, samples=[], aois=sample_aois, winner_ids=[]
+        )
+
+        assert frames == []
+
+    def test_generate_session_replay_length_mismatch(
+        self, blank_image: np.ndarray, sample_aois: list[AOI]
+    ) -> None:
+        """Verify error when samples and winner_ids have different lengths."""
+        from view_arc.tracking.dataclasses import ViewerSample
+        from view_arc.tracking.visualize import generate_session_replay
+
+        samples = [
+            ViewerSample(position=(400.0, 300.0), direction=(0.0, -1.0)),
+            ViewerSample(position=(400.0, 300.0), direction=(0.0, -1.0)),
+        ]
+        winner_ids: list[str | int | None] = ["shelf_top"]  # Mismatched length
+
+        with pytest.raises(ValueError, match="must have the same length"):
+            generate_session_replay(
+                image=blank_image, samples=samples, aois=sample_aois, winner_ids=winner_ids
+            )
+
+    def test_generate_session_replay_running_counts_accuracy(
+        self, blank_image: np.ndarray, sample_aois: list[AOI]
+    ) -> None:
+        """Verify running hit counts are correctly accumulated across frames."""
+        from view_arc.tracking.dataclasses import ViewerSample
+        from view_arc.tracking.visualize import generate_session_replay
+
+        # Create samples where shelf_top gets 3 hits, shelf_middle gets 2
+        samples = [
+            ViewerSample(position=(400.0, 200.0), direction=(0.0, -1.0)),  # shelf_top
+            ViewerSample(position=(400.0, 200.0), direction=(0.0, -1.0)),  # shelf_top
+            ViewerSample(position=(400.0, 400.0), direction=(0.0, -1.0)),  # shelf_middle
+            ViewerSample(position=(400.0, 200.0), direction=(0.0, -1.0)),  # shelf_top
+            ViewerSample(position=(400.0, 400.0), direction=(0.0, -1.0)),  # shelf_middle
+        ]
+
+        winner_ids: list[str | int | None] = [
+            "shelf_top",
+            "shelf_top",
+            "shelf_middle",
+            "shelf_top",
+            "shelf_middle",
+        ]
+
+        frames = generate_session_replay(
+            image=blank_image,
+            samples=samples,
+            aois=sample_aois,
+            winner_ids=winner_ids,
+        )
+
+        # We can't directly inspect the hit counts in the frames without
+        # more sophisticated image analysis, but we can verify:
+        # 1. All frames were generated
+        assert len(frames) == 5
+
+        # 2. Frames show progression (not all identical)
+        for i in range(len(frames) - 1):
+            assert not np.array_equal(frames[i], frames[i + 1])
+
+        # Save middle and last frames for manual verification
+        middle_path = OUTPUT_DIR / "test_session_replay_counts_frame_2.png"
+        last_path = OUTPUT_DIR / "test_session_replay_counts_frame_4.png"
+        cv2.imwrite(str(middle_path), frames[2])
+        cv2.imwrite(str(last_path), frames[4])

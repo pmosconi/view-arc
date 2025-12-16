@@ -56,7 +56,9 @@ from view_arc.tracking.visualize import (
     create_tracking_animation,
     draw_attention_heatmap,
     draw_attention_labels,
+    draw_session_frame,
     draw_viewing_timeline,
+    generate_session_replay,
 )
 
 __all__ = [
@@ -84,5 +86,7 @@ __all__ = [
     "create_tracking_animation",
     "draw_attention_heatmap",
     "draw_attention_labels",
+    "draw_session_frame",
     "draw_viewing_timeline",
+    "generate_session_replay",
 ]

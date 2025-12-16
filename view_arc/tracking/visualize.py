@@ -5,7 +5,7 @@ This module provides functions to draw overlays showing attention heatmaps
 and labels on images, useful for analyzing viewer attention patterns.
 """
 
-from typing import Literal
+from typing import TYPE_CHECKING, Literal
 
 import math
 
@@ -13,6 +13,9 @@ import numpy as np
 from numpy.typing import NDArray
 
 from view_arc.tracking.dataclasses import AOI, TrackingResult
+
+if TYPE_CHECKING:
+    from view_arc.tracking.dataclasses import ViewerSample
 
 Color = tuple[int, int, int]
 
@@ -805,6 +808,286 @@ def create_tracking_animation(
                 font_thickness,
                 cv2.LINE_AA,
             )
+
+        frames.append(frame)
+
+    return frames
+
+
+def draw_session_frame(
+    image: NDArray[np.uint8],
+    sample: "ViewerSample",
+    aois: list[AOI],
+    winner_id: str | int | None,
+    running_hit_counts: dict[str | int, int],
+    field_of_view_deg: float = 90.0,
+    max_range: float = 500.0,
+    sample_index: int | None = None,
+    total_samples: int | None = None,
+    wedge_color: tuple[int, int, int] = (0, 255, 0),
+    winner_color: tuple[int, int, int] = (0, 0, 255),
+    default_aoi_color: tuple[int, int, int] = (255, 0, 0),
+    viewer_marker_color: tuple[int, int, int] = (255, 255, 0),
+    show_hit_counts: bool = True,
+    show_progress: bool = True,
+) -> NDArray[np.uint8]:
+    """Draw a single frame of a session replay showing current viewer state.
+
+    This function renders a complete visualization showing:
+    - Current viewer position
+    - Current view arc (field of view wedge)
+    - Current winner highlighted (if any)
+    - Running hit counts for each AOI
+    - Optional progress indicator
+
+    Args:
+        image: Input image (H, W, 3) BGR format
+        sample: Current ViewerSample being visualized
+        aois: List of AOI objects to display
+        winner_id: ID of the currently winning AOI (None if no winner)
+        running_hit_counts: Current accumulated hit counts per AOI ID
+        field_of_view_deg: Field of view in degrees (default 90.0)
+        max_range: Maximum detection range in pixels (default 500.0)
+        sample_index: Current sample index (0-based) for progress display
+        total_samples: Total number of samples in session for progress display
+        wedge_color: BGR color for the FOV wedge outline
+        winner_color: BGR color for the winning AOI
+        default_aoi_color: BGR color for non-winning AOIs
+        viewer_marker_color: BGR color for viewer position marker
+        show_hit_counts: If True, display running hit counts on AOIs
+        show_progress: If True, display progress text (requires sample_index and total_samples)
+
+    Returns:
+        Image with session replay frame overlay (modified copy)
+
+    Example:
+        >>> sample = ViewerSample(position=(400.0, 300.0), direction=(0.0, -1.0))
+        >>> aois = [AOI(id="shelf1", contour=...)]
+        >>> counts = {"shelf1": 5}
+        >>> frame = draw_session_frame(img, sample, aois, "shelf1", counts)
+        >>> cv2.imwrite('frame.jpg', frame)
+    """
+    _ensure_cv2()
+
+    # Import here to avoid circular imports
+    from view_arc.tracking.dataclasses import ViewerSample
+
+    # Validate sample type
+    if not isinstance(sample, ViewerSample):
+        raise TypeError(f"sample must be a ViewerSample, got {type(sample).__name__}")
+
+    # Make a copy to avoid modifying the original
+    output = image.copy()
+
+    # Convert sample to numpy arrays
+    viewer_point = np.array(sample.position, dtype=np.float32)
+    view_direction = np.array(sample.direction, dtype=np.float32)
+
+    # Draw FOV wedge first (background layer)
+    # Import wedge drawing function from obstacle visualize
+    from view_arc.obstacle.visualize import draw_wedge_overlay
+
+    output = draw_wedge_overlay(
+        output,
+        viewer_point,
+        view_direction,
+        field_of_view_deg,
+        max_range,
+        color=wedge_color,
+        fill_alpha=0.1,
+        thickness=2,
+    )
+
+    # Draw all AOI contours, highlighting the winner
+    for aoi in aois:
+        pts = aoi.contour.astype(np.int32).reshape((-1, 1, 2))
+
+        # Choose color based on winner status
+        if winner_id is not None and aoi.id == winner_id:
+            color = winner_color
+            thickness = 3
+        else:
+            color = default_aoi_color
+            thickness = 2
+
+        # Draw the contour
+        cv2.polylines(output, [pts], isClosed=True, color=color, thickness=thickness)
+
+    # Draw hit counts on AOIs if requested
+    if show_hit_counts:
+        font = cv2.FONT_HERSHEY_SIMPLEX
+        font_scale = 0.6
+        font_thickness = 2
+
+        for aoi in aois:
+            hit_count = running_hit_counts.get(aoi.id, 0)
+
+            # Compute centroid for label placement
+            centroid = aoi.contour.mean(axis=0)
+            cx, cy = int(round(centroid[0])), int(round(centroid[1]))
+
+            # Draw label text
+            label = f"{hit_count}"
+            (text_w, text_h), _ = cv2.getTextSize(
+                label, font, font_scale, font_thickness
+            )
+
+            # Draw background rectangle
+            bg_color = winner_color if (winner_id is not None and aoi.id == winner_id) else default_aoi_color
+            cv2.rectangle(
+                output,
+                (cx - 2, cy - text_h - 2),
+                (cx + text_w + 2, cy + 2),
+                bg_color,
+                -1,
+            )
+
+            # Draw text
+            cv2.putText(
+                output,
+                label,
+                (cx, cy),
+                font,
+                font_scale,
+                (255, 255, 255),
+                font_thickness,
+            )
+
+    # Draw viewer position marker on top
+    vx, vy = int(round(viewer_point[0])), int(round(viewer_point[1]))
+    cv2.circle(output, (vx, vy), 6, viewer_marker_color, -1)
+    cv2.circle(output, (vx, vy), 6, (0, 0, 0), 1)  # Black outline for visibility
+
+    # Draw progress indicator if requested
+    if show_progress and sample_index is not None and total_samples is not None:
+        font = cv2.FONT_HERSHEY_SIMPLEX
+        font_scale = 0.7
+        font_thickness = 2
+
+        # Format: "Sample 42/100"
+        progress_text = f"Sample {sample_index + 1}/{total_samples}"
+        (text_w, text_h), _ = cv2.getTextSize(
+            progress_text, font, font_scale, font_thickness
+        )
+
+        # Position at top-left corner with padding
+        text_x = 10
+        text_y = text_h + 10
+
+        # Draw background rectangle
+        cv2.rectangle(
+            output,
+            (text_x - 5, text_y - text_h - 5),
+            (text_x + text_w + 5, text_y + 5),
+            (0, 0, 0),
+            -1,
+        )
+
+        # Draw text
+        cv2.putText(
+            output,
+            progress_text,
+            (text_x, text_y),
+            font,
+            font_scale,
+            (255, 255, 255),
+            font_thickness,
+        )
+
+    return output
+
+
+def generate_session_replay(
+    image: NDArray[np.uint8],
+    samples: list["ViewerSample"],
+    aois: list[AOI],
+    winner_ids: list[str | int | None],
+    field_of_view_deg: float = 90.0,
+    max_range: float = 500.0,
+    wedge_color: tuple[int, int, int] = (0, 255, 0),
+    winner_color: tuple[int, int, int] = (0, 0, 255),
+    default_aoi_color: tuple[int, int, int] = (255, 0, 0),
+    viewer_marker_color: tuple[int, int, int] = (255, 255, 0),
+    show_hit_counts: bool = True,
+    show_progress: bool = True,
+) -> list[NDArray[np.uint8]]:
+    """Generate a sequence of frames for a session replay video.
+
+    Creates one frame per sample showing the progression of viewer attention
+    throughout the session. Each frame shows the current viewer position,
+    view arc, which AOI is being viewed (if any), and running hit counts.
+
+    Args:
+        image: Base image (H, W, 3) BGR format
+        samples: List of ViewerSamples in chronological order
+        aois: List of AOI objects to visualize
+        winner_ids: List of winning AOI IDs for each sample (parallel to samples)
+        field_of_view_deg: Field of view in degrees (default 90.0)
+        max_range: Maximum detection range in pixels (default 500.0)
+        wedge_color: BGR color for the FOV wedge outline
+        winner_color: BGR color for the winning AOI
+        default_aoi_color: BGR color for non-winning AOIs
+        viewer_marker_color: BGR color for viewer position marker
+        show_hit_counts: If True, display running hit counts on AOIs
+        show_progress: If True, display frame counter
+
+    Returns:
+        List of frames (images) suitable for video export, one per sample
+
+    Raises:
+        ValueError: If samples and winner_ids have different lengths
+
+    Example:
+        >>> samples = [ViewerSample(...), ViewerSample(...), ...]
+        >>> winner_ids = ["shelf1", "shelf2", None, ...]
+        >>> frames = generate_session_replay(img, samples, aois, winner_ids)
+        >>> # Write frames to video or save individually
+        >>> for i, frame in enumerate(frames):
+        ...     cv2.imwrite(f'frame_{i:04d}.jpg', frame)
+    """
+    _ensure_cv2()
+
+    # Import here to avoid circular imports
+    from view_arc.tracking.dataclasses import ViewerSample
+
+    # Validate inputs
+    if len(samples) != len(winner_ids):
+        raise ValueError(
+            f"samples and winner_ids must have the same length, "
+            f"got {len(samples)} samples and {len(winner_ids)} winner_ids"
+        )
+
+    if len(samples) == 0:
+        return []
+
+    # Initialize running hit counts
+    running_hit_counts: dict[str | int, int] = {aoi.id: 0 for aoi in aois}
+
+    frames: list[NDArray[np.uint8]] = []
+
+    for idx, (sample, winner_id) in enumerate(zip(samples, winner_ids)):
+        # Update running hit count
+        if winner_id is not None:
+            running_hit_counts[winner_id] = running_hit_counts.get(winner_id, 0) + 1
+
+        # Generate frame
+        frame = draw_session_frame(
+            image=image,
+            sample=sample,
+            aois=aois,
+            winner_id=winner_id,
+            running_hit_counts=running_hit_counts.copy(),  # Copy to avoid mutation
+            field_of_view_deg=field_of_view_deg,
+            max_range=max_range,
+            sample_index=idx,
+            total_samples=len(samples),
+            wedge_color=wedge_color,
+            winner_color=winner_color,
+            default_aoi_color=default_aoi_color,
+            viewer_marker_color=viewer_marker_color,
+            show_hit_counts=show_hit_counts,
+            show_progress=show_progress,
+        )
 
         frames.append(frame)
 
