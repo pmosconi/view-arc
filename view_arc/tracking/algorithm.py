@@ -523,6 +523,73 @@ def compute_attention_seconds(
 # =============================================================================
 
 
+def _iterate_samples_chunked(
+    samples: SampleInput, chunk_size: int
+) -> Generator[list[ViewerSample], None, None]:
+    """Iterate through samples in chunks, normalizing only chunk_size samples at a time.
+
+    This helper function enables true O(chunk_size) memory usage by avoiding
+    materializing the entire sample list upfront.
+
+    Args:
+        samples: Input samples (list of ViewerSample or numpy array)
+        chunk_size: Number of samples per chunk
+
+    Yields:
+        Lists of ViewerSample objects, each containing at most chunk_size samples
+    """
+    import math
+
+    # If already a list of ViewerSamples, chunk it directly
+    if isinstance(samples, list):
+        for i in range(0, len(samples), chunk_size):
+            yield samples[i : i + chunk_size]
+        return
+
+    # NumPy array - iterate through rows without materializing full list
+    if isinstance(samples, np.ndarray):
+        if samples.ndim != 2:
+            raise ValidationError(
+                f"NumPy samples must be 2D array, got shape {samples.shape}"
+            )
+        if samples.shape[1] != 4:
+            raise ValidationError(
+                f"NumPy samples must have shape (N, 4), got shape {samples.shape}"
+            )
+
+        num_samples = samples.shape[0]
+        for chunk_start in range(0, num_samples, chunk_size):
+            chunk_end = min(chunk_start + chunk_size, num_samples)
+            chunk = []
+            for i in range(chunk_start, chunk_end):
+                row = samples[i]
+                x, y, dx, dy = (
+                    float(row[0]),
+                    float(row[1]),
+                    float(row[2]),
+                    float(row[3]),
+                )
+                # Normalize direction to unit vector
+                mag = math.sqrt(dx * dx + dy * dy)
+                if mag == 0:
+                    raise ValidationError(
+                        f"Sample at index {i} has zero-magnitude direction vector"
+                    )
+                dx_norm, dy_norm = dx / mag, dy / mag
+                chunk.append(
+                    ViewerSample(
+                        position=(x, y),
+                        direction=(dx_norm, dy_norm),
+                    )
+                )
+            yield chunk
+        return
+
+    raise ValidationError(
+        f"samples must be a list or numpy array, got {type(samples).__name__}"
+    )
+
+
 def compute_attention_seconds_streaming(
     samples: SampleInput,
     aois: list[AOI],
@@ -532,69 +599,83 @@ def compute_attention_seconds_streaming(
     session_config: SessionConfig | None = None,
     chunk_size: int = 100,
 ) -> Generator[TrackingResultWithConfig, None, None]:
-    """Compute attention seconds using streaming mode for memory efficiency.
+    """Compute attention seconds using streaming mode for true memory efficiency.
 
     This function processes samples in chunks to minimize memory usage for
-    very long sessions (e.g., 5000+ samples). It yields intermediate results
-    after processing each chunk, allowing for:
-    - Lower peak memory usage
+    very long sessions (e.g., 5000+ samples). Unlike batch mode, it normalizes
+    only chunk_size samples at a time, achieving true O(chunk_size) memory footprint.
+
+    Key difference from compute_attention_seconds():
+    - Batch mode: Materializes all samples in memory upfront
+    - Streaming mode: Processes samples incrementally, only chunk_size in memory
+
+    It yields intermediate results after processing each chunk, allowing for:
+    - True O(chunk_size) peak memory usage (not O(N))
     - Progress monitoring for long-running sessions
     - Early termination if needed
 
-    The final result is identical to compute_attention_seconds() but the
-    memory footprint is bounded by chunk_size rather than total sample count.
-
-    Memory Usage (Step 6.4):
+    Memory Usage (Step 6.4 - CORRECTED):
         - Batch mode (compute_attention_seconds): O(N) where N = total samples
-        - Streaming mode: O(chunk_size) + O(num_aois) for accumulated results
-        - For 10,000 samples with chunk_size=100: ~1% of batch mode memory
+        - Streaming mode: O(chunk_size) for active samples + O(num_aois) for results
+        - For 10,000 samples with chunk_size=100: ~1% of batch mode sample memory
 
     Args:
-        samples: Viewer observations (same formats as compute_attention_seconds)
+        samples: Viewer observations in one of the following formats:
+            - List of ViewerSample objects (chunked without full materialization)
+            - NumPy array of shape (N, 4) where rows are normalized per chunk
+            Direction vectors in numpy input are automatically normalized.
         aois: List of AOI objects defining the areas of interest to track
         field_of_view_deg: Field of view in degrees (default 90.0)
         max_range: Maximum detection range in pixels (default 500.0)
         sample_interval: Time interval per sample in seconds (default 1.0)
         session_config: Optional session configuration for metadata tracking
         chunk_size: Number of samples to process per chunk (default 100).
-            Smaller values reduce memory but increase overhead.
+            Must be positive. Smaller values reduce memory but increase overhead.
 
     Yields:
         TrackingResultWithConfig after processing each chunk. The final yield
         contains the complete accumulated results for all samples.
 
     Raises:
-        ValidationError: Same validation as compute_attention_seconds()
+        ValidationError: If chunk_size <= 0
+        ValidationError: If chunk_size is not an integer
+        ValidationError: Same validation as compute_attention_seconds() per chunk
 
     Example:
-        >>> samples = [ViewerSample(...) for _ in range(5000)]
+        >>> import numpy as np
+        >>> # Large numpy array - never fully materialized as ViewerSamples
+        >>> samples = np.random.rand(10000, 4)
         >>> aois = [AOI(id="shelf_A", contour=...), ...]
         >>> # Process in chunks of 100, monitoring progress
         >>> for chunk_result in compute_attention_seconds_streaming(
         ...     samples, aois, chunk_size=100
         ... ):
-        ...     progress = chunk_result.total_samples / 5000
+        ...     progress = chunk_result.total_samples / 10000
         ...     print(f"Progress: {progress:.1%}")
         >>> # chunk_result now contains final accumulated results
         >>> print(f"Total hits: {chunk_result.samples_with_hits}")
     """
-    # Normalize input to list of ViewerSample objects
-    normalized_samples = normalize_sample_input(samples)
+    # Validate chunk_size before any processing
+    if not isinstance(chunk_size, int):
+        raise ValidationError(
+            f"chunk_size must be an integer, got {type(chunk_size).__name__}"
+        )
+    if chunk_size <= 0:
+        raise ValidationError(f"chunk_size must be positive, got {chunk_size}")
 
-    # Determine frame_size for bounds checking
+    # Validate inputs (lightweight checks that don't require materializing samples)
+    validate_aois(aois)
+    validate_tracking_params(
+        fov_deg=field_of_view_deg, max_range=max_range, sample_interval=sample_interval
+    )
+
+    # Determine frame_size for per-chunk validation
     frame_size: tuple[float, float] | None = None
     if session_config is not None and session_config.frame_size is not None:
         frame_size = (
             float(session_config.frame_size[0]),
             float(session_config.frame_size[1]),
         )
-
-    # Validate inputs (only once at the start)
-    validate_viewer_samples(normalized_samples, frame_size=frame_size)
-    validate_aois(aois)
-    validate_tracking_params(
-        fov_deg=field_of_view_deg, max_range=max_range, sample_interval=sample_interval
-    )
 
     # Initialize AOI results for all AOIs
     aoi_results: dict[str | int, AOIResult] = {}
@@ -606,16 +687,16 @@ def compute_attention_seconds_streaming(
     samples_with_hits = 0
     samples_no_winner = 0
 
-    # Process samples in chunks
-    num_samples = len(normalized_samples)
-    for chunk_start in range(0, num_samples, chunk_size):
-        chunk_end = min(chunk_start + chunk_size, num_samples)
-        chunk_samples = normalized_samples[chunk_start:chunk_end]
+    # Process samples in chunks (true streaming - only chunk_size in memory)
+    # _iterate_samples_chunked normalizes only the current chunk, not the entire array
+    for chunk_samples in _iterate_samples_chunked(samples, chunk_size):
+        # Validate this chunk (only these samples are in memory)
+        validate_viewer_samples(chunk_samples, frame_size=frame_size)
 
         # Process each sample in the current chunk
-        for sample_index_in_chunk, sample in enumerate(chunk_samples):
-            # Calculate global sample index for hit_timestamps
-            global_sample_index = chunk_start + sample_index_in_chunk
+        for sample in chunk_samples:
+            # Use current count as global sample index for hit_timestamps
+            global_sample_index = total_samples_processed
 
             # Get the winning AOI ID for this sample
             winning_id = process_single_sample(

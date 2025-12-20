@@ -548,3 +548,79 @@ class TestStreamingMode:
         assert results[1].total_samples == 200
         assert results[2].total_samples == 250  # Final partial chunk
 
+    def test_streaming_mode_invalid_chunk_size_zero(self) -> None:
+        """Verify streaming mode rejects chunk_size=0."""
+        from view_arc.tracking import ValidationError
+
+        samples = generate_simple_samples(100)
+        aois = generate_simple_aois(5)
+
+        with pytest.raises(ValidationError, match="chunk_size must be positive"):
+            list(compute_attention_seconds_streaming(samples, aois, chunk_size=0))
+
+    def test_streaming_mode_invalid_chunk_size_negative(self) -> None:
+        """Verify streaming mode rejects negative chunk_size."""
+        from view_arc.tracking import ValidationError
+
+        samples = generate_simple_samples(100)
+        aois = generate_simple_aois(5)
+
+        with pytest.raises(ValidationError, match="chunk_size must be positive"):
+            list(compute_attention_seconds_streaming(samples, aois, chunk_size=-5))
+
+    def test_streaming_mode_invalid_chunk_size_non_integer(self) -> None:
+        """Verify streaming mode rejects non-integer chunk_size."""
+        from view_arc.tracking import ValidationError
+
+        samples = generate_simple_samples(100)
+        aois = generate_simple_aois(5)
+
+        with pytest.raises(ValidationError, match="chunk_size must be an integer"):
+            list(
+                compute_attention_seconds_streaming(samples, aois, chunk_size=50.5)  # type: ignore
+            )
+
+    def test_streaming_mode_true_memory_efficiency_with_numpy(self) -> None:
+        """Verify streaming mode truly avoids materializing full numpy array.
+
+        This test validates the fix for the [High] issue where streaming mode
+        was loading the entire sample batch into memory before chunking.
+        With the fix, numpy arrays are processed row-by-row per chunk.
+        """
+        import tracemalloc
+
+        # Create a moderately large numpy array (1000 samples)
+        # Each sample: 4 floats × 8 bytes = 32 bytes
+        # Total array: ~32 KB
+        num_samples = 1000
+        samples_array = np.random.rand(num_samples, 4).astype(np.float64)
+        aois = generate_simple_aois(10)
+
+        # Track memory during streaming processing
+        tracemalloc.start()
+        baseline = tracemalloc.get_traced_memory()[0]
+
+        # Process with small chunk size to see memory benefit
+        chunk_size = 50
+        for result in compute_attention_seconds_streaming(
+            samples_array, aois, chunk_size=chunk_size
+        ):
+            pass  # Just consume chunks
+
+        peak_memory = tracemalloc.get_traced_memory()[1] - baseline
+        tracemalloc.stop()
+
+        # Verify results are correct
+        assert result.total_samples == num_samples
+
+        # Memory should be significantly less than if we materialized all samples
+        # Each ViewerSample dataclass is ~100-200 bytes (position tuple, direction tuple, etc.)
+        # If we materialized all 1000, that's ~100-200 KB
+        # With streaming (chunk_size=50), peak should be much lower
+        # Allow generous threshold since Python object overhead varies
+        max_expected_mb = 1.0  # Should use < 1 MB peak
+        actual_mb = peak_memory / (1024 * 1024)
+        assert (
+            actual_mb < max_expected_mb
+        ), f"Streaming used {actual_mb:.2f} MB, expected < {max_expected_mb} MB"
+

@@ -7,8 +7,12 @@ for processing very long sessions with lower memory overhead.
 
 The streaming mode is beneficial when:
 - Processing 5000+ samples (long acquisition sessions)
-- Memory constraints are a concern
+- Memory constraints are a concern (processes only chunk_size samples at a time)
 - Progress monitoring is needed for long-running processing
+
+Key difference from batch mode:
+- Batch mode: Materializes all samples in memory upfront
+- Streaming mode: Normalizes only chunk_size samples at a time (true O(chunk_size) memory)
 
 Use Case: Process a 1-hour session (3600 samples at 1 Hz) with progress updates.
 """
@@ -120,14 +124,14 @@ def main() -> None:
     print()
     print("Memory Efficiency Notes:")
     print("  - Streaming mode processes samples in chunks")
-    print("  - Peak memory is bounded by chunk_size, not total samples")
+    print("  - For NumPy input: Normalizes only chunk_size rows at a time")
+    print("  - For list input: Processes in chunk_size batches")
+    print("  - Peak memory for active samples: O(chunk_size) not O(N)")
     print("  - For 3600 samples with chunk_size=100:")
-    print("    • Batch mode: O(3600) samples in memory")
+    print("    • Batch mode: O(3600) samples materialized upfront")
     print("    • Streaming mode: O(100) samples in memory at a time")
-    print(
-        "  - Result accumulation (hit_timestamps) still grows with O(N) "
-        "across both modes"
-    )
+    print("  - Result accumulation (hit_timestamps) still grows with O(hits)")
+    print("    across both modes, but active sample memory is bounded")
 
 
 if __name__ == "__main__":
