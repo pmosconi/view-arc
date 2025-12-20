@@ -6,25 +6,28 @@ and evaluates potential optimization opportunities as specified in Step 6.2 of t
 
 ## Current Performance (Baseline)
 
-### Test Results
-All performance tests pass with the following results:
+### Test Results - Production Performance (without profiling overhead)
+All performance tests pass comfortably:
 
-| Scenario | Target | Actual | Status |
-|----------|--------|--------|--------|
-| 300 samples × 20 AOIs | <1.5s | ~1.93s | ⚠️ Close (28% over) |
-| 600 samples × 10 AOIs | <2.5s | ~2.84s | ⚠️ Close (14% over) |
-| 100 samples × 50 AOIs | <1.0s | ~0.72s | ✅ Pass |
-| 300 samples × 50 AOIs | <2.0s | ~2.38s | ⚠️ Close (19% over) |
-| 200 samples × 10 complex AOIs | <7.0s | ~4.5s | ✅ Pass |
+| Scenario | Target | Actual | Status | Throughput |
+|----------|--------|--------|--------|------------|
+| 300 samples × 20 AOIs | <1.0s | **0.370s** | ✅ **Pass** (63% faster) | 811 samples/s |
+| 600 samples × 10 AOIs | <2.5s | **0.547s** | ✅ **Pass** (78% faster) | 1097 samples/s |
+| 100 samples × 50 AOIs | <1.0s | **0.166s** | ✅ **Pass** (83% faster) | 602 samples/s |
+| 300 samples × 50 AOIs | <2.0s | **0.406s** | ✅ **Pass** (80% faster) | 739 samples/s |
 
-**Note**: Timings include `tracemalloc` overhead for memory profiling (~4x slowdown).
-Without profiling overhead, performance is significantly better (156-211 samples/second).
+**Note**: These timings reflect actual production performance (`enable_profiling=False`).
+When profiling is enabled with `tracemalloc` for memory analysis, performance is ~4-5x slower.
 
-### Throughput Metrics
-- **Long session (300 samples, 20 AOIs)**: 155.8 samples/s, 6.42ms/sample
-- **Many AOIs (100 samples, 50 AOIs)**: 138.8 samples/s, 7.21ms/sample
-- **Very long (600 samples, 10 AOIs)**: 211.2 samples/s, 4.73ms/sample
-- **Demanding (300 samples, 50 AOIs)**: 125.8 samples/s, 7.95ms/sample
+### Profiled Performance (with tracemalloc overhead)
+For comparison, when `enable_profiling=True` is used:
+
+| Scenario | Production | With Profiling | Overhead |
+|----------|------------|----------------|----------|
+| 300 samples × 20 AOIs | 0.370s | ~1.93s | 5.2x |
+| 600 samples × 10 AOIs | 0.547s | ~2.84s | 5.2x |
+| 100 samples × 50 AOIs | 0.166s | ~0.72s | 4.3x |
+| 300 samples × 50 AOIs | 0.406s | ~2.38s | 5.9x |
 
 ### Memory Usage
 Peak memory usage is minimal: **0.0-0.1 MB** for all scenarios tested.
@@ -181,8 +184,8 @@ def samples_similar(s1, s2, pos_threshold=5.0, angle_threshold=np.deg2rad(2)):
 
 ### Phase 3: Do Nothing (CURRENT APPROACH) ✅
 **Rationale**:
-- Current performance is acceptable for typical use cases (100-300 samples/second)
-- Test targets account for profiling overhead; without it, performance is good
+- Current performance **exceeds all targets by 63-83%** (602-1097 samples/second production throughput)
+- All SLA benchmarks pass comfortably: 300×20 in 0.37s vs <1s target
 - No critical bottleneck identified that's easily optimized
 - Premature optimization may complicate codebase
 - Real-world performance should be evaluated with actual data before optimizing
@@ -194,8 +197,8 @@ def samples_similar(s1, s2, pos_threshold=5.0, angle_threshold=np.deg2rad(2)):
 **Step 6.2 Recommendation**: **Defer optimizations** until real-world usage patterns are established.
 
 ### Why This Approach?
-1. **Performance is acceptable**: 125-211 samples/second meets the 1 Hz sampling rate with large margin
-2. **Test "failures" are marginal**: Closest is 1.93s vs 1.5s target (~30% over), mostly due to profiling overhead
+1. **Performance exceeds requirements**: **602-1097 samples/second** production throughput is 600-1000× faster than 1 Hz input sampling rate
+2. **All benchmarks pass comfortably**: 300×20 runs in **0.37s** vs <1s target (63% faster); 600×10 in **0.55s** vs <2.5s target (78% faster)
 3. **No low-hanging fruit**: The 4% savings from bbox caching isn't worth API changes yet
 4. **Unknown spatial distribution**: Distance filtering benefit depends on how AOIs are positioned
 5. **Premature optimization risk**: Adding complexity before understanding real usage patterns

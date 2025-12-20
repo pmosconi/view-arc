@@ -70,7 +70,7 @@ def profile_scenario(
     profiler.enable()
 
     result = compute_attention_seconds(
-        samples, aois, enable_profiling=True
+        samples, aois, enable_profiling=False
     )
 
     profiler.disable()

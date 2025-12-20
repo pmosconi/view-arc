@@ -153,32 +153,31 @@ class TestPerformanceLongSession:
         """Test with 300 samples (5 min session) and 20 AOIs.
 
         This represents a typical real-world session.
-        Target: < 1.5s total runtime (includes tracemalloc overhead).
+        Target: < 1.0s production runtime (without profiling overhead).
         """
         samples = generate_simple_samples(300)
         aois = generate_simple_aois(20)
 
         start = time.perf_counter()
-        result = compute_attention_seconds(samples, aois, enable_profiling=True)
+        result = compute_attention_seconds(samples, aois, enable_profiling=False)
         elapsed = time.perf_counter() - start
 
         assert result.total_samples == 300
-        assert elapsed < 1.5, f"300 samples took {elapsed:.3f}s, expected < 1.5s"
+        assert elapsed < 1.0, f"300 samples took {elapsed:.3f}s, expected < 1.0s"
 
-        # Verify profiling data matches
-        assert result.profiling_data is not None
-        assert result.profiling_data.samples_processed == 300
+        # Verify no profiling data when profiling is disabled
+        assert result.profiling_data is None
 
     def test_performance_600_samples_10_aois(self) -> None:
         """Test with 600 samples (10 min session) and 10 AOIs.
 
-        Target: < 2.5s total runtime (includes tracemalloc overhead).
+        Target: < 2.5s production runtime (without profiling overhead).
         """
         samples = generate_simple_samples(600)
         aois = generate_simple_aois(10)
 
         start = time.perf_counter()
-        result = compute_attention_seconds(samples, aois, enable_profiling=True)
+        result = compute_attention_seconds(samples, aois, enable_profiling=False)
         elapsed = time.perf_counter() - start
 
         assert result.total_samples == 600
@@ -191,13 +190,13 @@ class TestPerformanceManyAOIs:
     def test_performance_100_samples_50_aois(self) -> None:
         """Test with 100 samples and 50 AOIs.
 
-        Target: < 1s total runtime.
+        Target: < 1.0s production runtime.
         """
         samples = generate_simple_samples(100)
         aois = generate_simple_aois(50)
 
         start = time.perf_counter()
-        result = compute_attention_seconds(samples, aois, enable_profiling=True)
+        result = compute_attention_seconds(samples, aois, enable_profiling=False)
         elapsed = time.perf_counter() - start
 
         assert result.total_samples == 100
@@ -208,13 +207,13 @@ class TestPerformanceManyAOIs:
         """Test with 300 samples and 50 AOIs.
 
         This is a demanding workload.
-        Target: < 2s total runtime.
+        Target: < 2.0s production runtime.
         """
         samples = generate_simple_samples(300)
         aois = generate_simple_aois(50)
 
         start = time.perf_counter()
-        result = compute_attention_seconds(samples, aois, enable_profiling=True)
+        result = compute_attention_seconds(samples, aois, enable_profiling=False)
         elapsed = time.perf_counter() - start
 
         assert result.total_samples == 300
@@ -253,20 +252,19 @@ class TestPerformanceComplexContours:
     def test_performance_complex_aoi_contours(self) -> None:
         """Test with AOIs having many vertices (20 each).
 
-        Target: < 7s for 200 samples × 10 complex AOIs (with profiling overhead).
-        Note: tracemalloc adds ~4x overhead, so threshold accounts for that.
+        Target: < 2.0s for 200 samples × 10 complex AOIs (production performance).
         """
         samples = generate_simple_samples(200)
         aois = self.generate_complex_aois(10, vertices_per_aoi=20)
 
         start = time.perf_counter()
-        result = compute_attention_seconds(samples, aois, enable_profiling=True)
+        result = compute_attention_seconds(samples, aois, enable_profiling=False)
         elapsed = time.perf_counter() - start
 
         assert result.total_samples == 200
         assert (
-            elapsed < 7.0
-        ), f"200 samples × 10 complex AOIs took {elapsed:.3f}s, expected < 7s"
+            elapsed < 2.0
+        ), f"200 samples × 10 complex AOIs took {elapsed:.3f}s, expected < 2.0s"
 
 
 class TestProfilingMetricsAccuracy:
