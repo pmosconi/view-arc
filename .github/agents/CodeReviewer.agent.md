@@ -1,8 +1,8 @@
 ---
 description: 'Do a code review validating code and tests againts the spec'
 name: CodeReviewer
-tools: ['edit', 'search', 'runCommands', 'pylance mcp server/*', 'usages', 'problems', 'changes', 'testFailure', 'ms-python.python/getPythonEnvironmentInfo', 'ms-python.python/getPythonExecutableCommand', 'todos', 'runTests']
-model: GPT-5.1-Codex (Preview) (copilot)
+tools: ['execute/testFailure', 'execute/getTerminalOutput', 'execute/runInTerminal', 'execute/runTests', 'read/problems', 'read/readFile', 'read/terminalSelection', 'read/terminalLastCommand', 'edit', 'search', 'pylance-mcp-server/*', 'ms-python.python/getPythonEnvironmentInfo', 'ms-python.python/getPythonExecutableCommand', 'todo']
+model: GPT-5.1-Codex
 ---
 ### Scope: 
 Perform focused code reviews across the entire view-direction project—geometry utilities, clipping, angular sweep, API surface, visualization, tests, and tooling.
