@@ -303,17 +303,19 @@ def process_single_sample(
 
 @dataclass
 class TrackingResultWithConfig(TrackingResult):
-    """TrackingResult extended with embedded SessionConfig.
+    """TrackingResult extended with embedded SessionConfig and optional profiling data.
 
     Contains all the fields from TrackingResult plus the session configuration
-    that was used for this tracking run.
+    that was used for this tracking run, and optionally performance profiling data.
 
     Attributes:
         session_config: The SessionConfig used for this tracking session,
             or None if not provided
+        profiling_data: Performance metrics if enable_profiling=True, None otherwise
     """
 
     session_config: SessionConfig | None = None
+    profiling_data: Any | None = None  # ProfilingData when available
 
 
 def compute_attention_seconds(
@@ -323,6 +325,7 @@ def compute_attention_seconds(
     max_range: float = 500.0,
     sample_interval: float = 1.0,
     session_config: SessionConfig | None = None,
+    enable_profiling: bool = False,
 ) -> TrackingResultWithConfig:
     """Compute accumulated attention seconds for each AOI from a batch of samples.
 
@@ -346,6 +349,9 @@ def compute_attention_seconds(
         session_config: Optional session configuration for metadata tracking.
             If provided, frame_size is used for bounds checking on sample positions,
             and the config is embedded in the result for downstream analytics.
+        enable_profiling: If True, capture lightweight performance metrics (timing,
+            sample counters) and include them in the result. Default False.
+            Note: Profiling has negligible overhead and does not alter results.
 
     Returns:
         TrackingResultWithConfig containing:
@@ -354,6 +360,7 @@ def compute_attention_seconds(
         - samples_with_hits: Number of samples where any AOI was visible
         - samples_no_winner: Number of samples where no AOI was in view
         - session_config: The SessionConfig used (or None if not provided)
+        - profiling_data: ProfilingData with performance metrics if enable_profiling=True
 
     Raises:
         ValidationError: If samples is not a valid list of ViewerSamples
@@ -365,6 +372,7 @@ def compute_attention_seconds(
         - samples_with_hits + samples_no_winner == total_samples
         - sum(aoi_result.hit_count for all AOIs) == samples_with_hits
         - All AOI IDs present in result (even with hit_count=0)
+        - Profiling does not affect accuracy or results
 
     Example:
         >>> samples = [
@@ -378,7 +386,16 @@ def compute_attention_seconds(
         ... ]
         >>> result = compute_attention_seconds(samples, aois)
         >>> print(f"shelf_A received {result.get_hit_count('shelf_A')} seconds of attention")
+        >>> # With profiling enabled
+        >>> result = compute_attention_seconds(samples, aois, enable_profiling=True)
+        >>> if result.profiling_data:
+        ...     print(result.profiling_data)
     """
+    import time
+
+    # Start profiling timer if enabled
+    start_time = time.perf_counter() if enable_profiling else 0.0
+
     # Normalize input to list of ViewerSample objects
     normalized_samples = normalize_sample_input(samples)
 
@@ -427,10 +444,21 @@ def compute_attention_seconds(
         else:
             samples_no_winner += 1
 
+    # Collect profiling data if enabled
+    profiling_data_obj = None
+    if enable_profiling:
+        from view_arc.tracking.dataclasses import ProfilingData
+
+        elapsed_time = time.perf_counter() - start_time
+        profiling_data_obj = ProfilingData(
+            total_time_seconds=elapsed_time, samples_processed=total_samples
+        )
+
     return TrackingResultWithConfig(
         aoi_results=aoi_results,
         total_samples=total_samples,
         samples_with_hits=samples_with_hits,
         samples_no_winner=samples_no_winner,
         session_config=session_config,
+        profiling_data=profiling_data_obj,
     )

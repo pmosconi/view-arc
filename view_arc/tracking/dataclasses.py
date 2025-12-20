@@ -820,3 +820,59 @@ def _validate_session_config(config: SessionConfig) -> tuple[int, int] | None:
         )
 
     return normalized_frame_size
+
+
+# =============================================================================
+# Profiling Data (Step 6.1)
+# =============================================================================
+
+
+@dataclass
+class ProfilingData:
+    """Performance profiling data for a tracking run.
+
+    This dataclass captures timing and sample processing metrics when
+    profiling is enabled in compute_attention_seconds().
+
+    Attributes:
+        total_time_seconds: Total wall-clock time for processing all samples
+        samples_processed: Number of samples successfully processed
+        samples_per_second: Throughput (samples/second)
+        avg_time_per_sample_ms: Average time per sample in milliseconds
+        peak_memory_bytes: Peak memory usage if available (None otherwise)
+        cache_hit_ratio: Ratio of cache hits if caching is enabled (None otherwise)
+    """
+
+    total_time_seconds: float
+    samples_processed: int
+    samples_per_second: float = 0.0
+    avg_time_per_sample_ms: float = 0.0
+    peak_memory_bytes: int | None = None
+    cache_hit_ratio: float | None = None
+
+    def __post_init__(self) -> None:
+        """Calculate derived metrics."""
+        if self.total_time_seconds > 0 and self.samples_processed > 0:
+            object.__setattr__(
+                self, "samples_per_second", self.samples_processed / self.total_time_seconds
+            )
+            object.__setattr__(
+                self,
+                "avg_time_per_sample_ms",
+                (self.total_time_seconds / self.samples_processed) * 1000,
+            )
+
+    def __repr__(self) -> str:
+        """Human-readable representation."""
+        lines = [
+            f"ProfilingData:",
+            f"  Total time: {self.total_time_seconds:.3f}s",
+            f"  Samples: {self.samples_processed}",
+            f"  Throughput: {self.samples_per_second:.1f} samples/s",
+            f"  Avg time/sample: {self.avg_time_per_sample_ms:.2f}ms",
+        ]
+        if self.peak_memory_bytes is not None:
+            lines.append(f"  Peak memory: {self.peak_memory_bytes / 1024 / 1024:.1f} MB")
+        if self.cache_hit_ratio is not None:
+            lines.append(f"  Cache hit ratio: {self.cache_hit_ratio:.1%}")
+        return "\n".join(lines)

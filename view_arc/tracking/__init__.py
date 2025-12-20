@@ -26,6 +26,7 @@ Module Structure:
 from view_arc.tracking.dataclasses import (
     AOI,
     AOIResult,
+    ProfilingData,
     SAMPLING_ASSUMPTIONS,
     SessionConfig,
     TrackingResult,
@@ -65,6 +66,7 @@ __all__ = [
     # Data structures
     "AOI",
     "AOIResult",
+    "ProfilingData",
     "SAMPLING_ASSUMPTIONS",
     "SessionConfig",
     "TrackingResult",

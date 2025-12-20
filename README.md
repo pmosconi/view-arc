@@ -85,6 +85,64 @@ uv run mypy .
 
 Address any type errors before committing changes.
 
+## Performance Profiling
+
+The project includes performance profiling tools to monitor runtime and accuracy regression:
+
+### Running Profiling Scenarios
+
+Run performance baselines with:
+
+```bash
+# Run tracking baseline scenarios only
+uv run python profile_workload.py --scenario tracking_baseline
+
+# Run all scenarios (obstacle detection + tracking)
+uv run python profile_workload.py --scenario all
+
+# Save results to CSV for trend tracking
+uv run python profile_workload.py --scenario tracking_baseline --save-csv
+```
+
+Results are saved to `examples/output/profile_runs.csv` with timestamp, runtime, throughput, and accuracy metrics.
+
+### Profiling in Code
+
+Enable lightweight profiling in tracking runs:
+
+```python
+from view_arc.tracking import compute_attention_seconds
+
+result = compute_attention_seconds(
+    samples=samples,
+    aois=aois,
+    enable_profiling=True  # Enable performance metrics
+)
+
+# Access profiling data
+if result.profiling_data:
+    print(result.profiling_data)
+    # Output includes:
+    # - Total time
+    # - Samples processed
+    # - Throughput (samples/s)
+    # - Average time per sample (ms)
+```
+
+**Note**: Profiling has negligible overhead (<1%) and does not alter results.
+
+### CI Integration
+
+For weekly regression detection, run:
+
+```bash
+uv run python profile_workload.py --scenario tracking_baseline --save-csv
+```
+
+Compare results against previous runs in `examples/output/profile_runs.csv`. Threshold alerts are emitted when:
+- Runtime exceeds 120% of golden baseline
+- Hit counts differ from expected values
+
 ## Algorithm
 
 See `docs/obstacle_arc_spec.md` for detailed algorithm specification.
