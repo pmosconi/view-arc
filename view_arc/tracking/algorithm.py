@@ -393,8 +393,12 @@ def compute_attention_seconds(
     """
     import time
 
-    # Start profiling timer if enabled
+    # Start profiling timer and memory tracking if enabled
     start_time = time.perf_counter() if enable_profiling else 0.0
+    if enable_profiling:
+        import tracemalloc
+
+        tracemalloc.start()
 
     # Normalize input to list of ViewerSample objects
     normalized_samples = normalize_sample_input(samples)
@@ -450,8 +454,17 @@ def compute_attention_seconds(
         from view_arc.tracking.dataclasses import ProfilingData
 
         elapsed_time = time.perf_counter() - start_time
+
+        # Get peak memory usage
+        import tracemalloc
+
+        current_memory, peak_memory = tracemalloc.get_traced_memory()
+        tracemalloc.stop()
+
         profiling_data_obj = ProfilingData(
-            total_time_seconds=elapsed_time, samples_processed=total_samples
+            total_time_seconds=elapsed_time,
+            samples_processed=total_samples,
+            peak_memory_bytes=peak_memory,
         )
 
     return TrackingResultWithConfig(

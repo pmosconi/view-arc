@@ -2,3 +2,6 @@ timestamp,scenario,n_samples,n_aois,runtime_seconds,samples_per_second,total_hit
 2025-12-20 17:41:15,tracking_100samples_10aois,100,10,0.098,1019.3,53,0.530
 2025-12-20 17:41:16,tracking_300samples_20aois,300,20,0.959,312.9,275,0.917
 2025-12-20 17:41:19,tracking_600samples_50aois,600,50,3.198,187.6,600,1.000
+2025-12-20 17:49:58,tracking_100samples_10aois,100,10,0.104,961.9,53,0.530
+2025-12-20 17:49:59,tracking_300samples_20aois,300,20,0.955,314.1,275,0.917
+2025-12-20 17:50:02,tracking_600samples_50aois,600,50,3.309,181.3,600,1.000
