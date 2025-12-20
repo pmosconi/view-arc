@@ -49,6 +49,7 @@ from view_arc.tracking.algorithm import (
     SingleSampleResult,
     TrackingResultWithConfig,
     compute_attention_seconds,
+    compute_attention_seconds_streaming,
     process_single_sample,
 )
 
@@ -83,6 +84,7 @@ __all__ = [
     "SingleSampleResult",
     "TrackingResultWithConfig",
     "compute_attention_seconds",
+    "compute_attention_seconds_streaming",
     "process_single_sample",
     # Visualization
     "create_tracking_animation",

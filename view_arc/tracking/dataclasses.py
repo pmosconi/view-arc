@@ -190,6 +190,19 @@ class AOIResult:
         self.total_attention_seconds += sample_interval
         self.hit_timestamps.append(sample_index)
 
+    def copy(self) -> "AOIResult":
+        """Create a deep copy of this AOIResult.
+
+        Returns:
+            A new AOIResult with the same data but independent hit_timestamps list.
+        """
+        return AOIResult(
+            aoi_id=self.aoi_id,
+            hit_count=self.hit_count,
+            total_attention_seconds=self.total_attention_seconds,
+            hit_timestamps=list(self.hit_timestamps),
+        )
+
     @property
     def attention_percentage(self) -> float | None:
         """Attention percentage (requires external total to compute)."""
