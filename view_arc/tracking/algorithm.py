@@ -336,6 +336,26 @@ def compute_attention_seconds(
     Each processed sample is assumed to represent exactly `sample_interval` seconds
     of viewing time (default 1 second at 1 Hz sampling rate).
 
+    Performance Characteristics (Step 6.2):
+        Current throughput: 125-211 samples/second depending on AOI count and complexity.
+        - 300 samples × 20 AOIs: ~1.93s (155.8 samples/s, 6.42ms/sample)
+        - 300 samples × 50 AOIs: ~2.38s (125.8 samples/s, 7.95ms/sample)
+        - 600 samples × 10 AOIs: ~2.84s (211.2 samples/s, 4.73ms/sample)
+
+        Bottlenecks (by time spent):
+        1. Angular sweep algorithm (compute_coverage): ~40-45% - core algorithm
+        2. Polygon clipping (clip_polygon_to_wedge): ~40-45% - geometric operations
+        3. Halfplane clipping (clip_polygon_halfplane): ~20-25% - geometric operations
+        4. Distance calculations (_find_min_distance_at_angle): ~10-15%
+
+        Future optimization opportunities (see docs/PERFORMANCE_ANALYSIS.md):
+        - Pre-compute AOI bounding boxes (4-5% improvement, low complexity)
+        - Early distance-based AOI filtering (10-30% improvement, medium complexity)
+        - Result caching for similar samples (30-60% improvement, high complexity)
+
+        Current decision: Defer optimizations until real-world usage patterns are known.
+        Performance is acceptable for typical use cases (1 Hz sampling rate).
+
     Args:
         samples: Viewer observations in one of the following formats:
             - List of ViewerSample objects
@@ -351,7 +371,7 @@ def compute_attention_seconds(
             and the config is embedded in the result for downstream analytics.
         enable_profiling: If True, capture lightweight performance metrics (timing,
             sample counters) and include them in the result. Default False.
-            Note: Profiling has negligible overhead and does not alter results.
+            Note: Profiling adds ~4x overhead due to tracemalloc but does not alter results.
 
     Returns:
         TrackingResultWithConfig containing:
@@ -429,6 +449,21 @@ def compute_attention_seconds(
     samples_no_winner = 0
 
     # Process each sample
+    # Performance note (Step 6.2): This loop processes samples sequentially,
+    # calling find_largest_obstacle() for each sample. Current throughput is
+    # 125-211 samples/second depending on AOI complexity.
+    #
+    # Profiled bottlenecks (see docs/PERFORMANCE_ANALYSIS.md):
+    # - compute_coverage (sweep algorithm): ~40-45% of time
+    # - clip_polygon_to_wedge (geometric ops): ~40-45% of time
+    #
+    # Future optimization opportunities (if needed):
+    # 1. Pre-compute AOI bounding boxes once per batch (4-5% improvement)
+    # 2. Filter AOIs by distance before processing (10-30% improvement)
+    # 3. Cache results for similar consecutive samples (30-60% improvement)
+    #
+    # Current decision: Defer optimizations. Performance is acceptable for
+    # typical use case of 1 Hz sampling (1 sample/second input rate).
     for sample_index, sample in enumerate(normalized_samples):
         # Get the winning AOI ID for this sample
         winning_id = process_single_sample(
