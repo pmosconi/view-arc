@@ -57,11 +57,39 @@ can explore via ``help(view_arc.find_largest_obstacle)``.
 
 ## Examples
 
-- ``examples/basic_usage.py`` – minimal, self-contained invocation with console output.
-- ``examples/visualization_demo.py`` – renders the wedge, obstacles, and resolved intervals to ``examples/output/visualization_demo.png`` (requires OpenCV).
-- ``examples/real_image_processing.py`` – extracts contours from the ``skimage`` astronaut image, runs detection, and saves an annotated overlay.
+### Single-Frame Obstacle Detection
 
-Run every example with ``uv run python <script>`` so that dependencies resolve inside the project environment.
+- `examples/basic_usage.py` – minimal, self-contained invocation with console output.
+- `examples/visualization_demo.py` – renders the wedge, obstacles, and resolved intervals to `examples/output/visualization_demo.png` (requires OpenCV).
+- `examples/real_image_processing.py` – extracts contours from the `skimage` astronaut image, runs detection, and saves an annotated overlay.
+
+### Temporal Attention Tracking
+
+- `examples/attention_tracking_basic.py` – minimal batch tracking example (10 seconds of viewer samples)
+  - Shows basic usage of `compute_attention_seconds()`
+  - Prints per-AOI hit counts and top AOIs
+  - **Start here** for attention tracking
+
+- `examples/attention_tracking_visualization.py` – heatmap visualization of attention distribution
+  - Simulates 100-second viewing session
+  - Generates colored heatmaps (hot/viridis colormaps)
+  - Adds labels with hit counts and percentages
+  - Saves outputs to `examples/output/`
+
+- `examples/attention_tracking_analysis.py` – result analysis and export
+  - Demonstrates all aggregation methods (`get_top_aois`, `get_attention_distribution`, etc.)
+  - Exports results to pandas DataFrame
+  - Shows viewing timeline and session statistics
+  - Includes DataFrame operations examples
+
+- `examples/simulated_store_session.py` – complete realistic simulation
+  - Loads real store layout and AOI annotations from JSON
+  - Generates 60 seconds of realistic browsing behavior
+  - Simulates natural walking patterns and view scanning
+  - Produces comprehensive visualizations (heatmap + timeline + path overlay)
+  - **Most complete example** showing full workflow
+
+Run every example with `uv run python <script>` so that dependencies resolve inside the project environment.
 
 ## Tracking Assumptions
 

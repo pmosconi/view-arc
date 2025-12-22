@@ -562,22 +562,42 @@ When consecutive samples have nearly identical viewer position and view directio
 
 ---
 
-### Step 7.2: Example Scripts
+### Step 7.2: Example Scripts ✅ COMPLETED
 **Implementation:**
-- `examples/attention_tracking_basic.py` - minimal example
-- `examples/attention_tracking_visualization.py` - with heatmap output
-- `examples/attention_tracking_analysis.py` - with result analysis
-- `examples/simulated_store_session.py` - generate and analyze synthetic data
+- ✅ `examples/attention_tracking_basic.py` - minimal example
+- ✅ `examples/attention_tracking_visualization.py` - with heatmap output
+- ✅ `examples/attention_tracking_analysis.py` - with result analysis
+- ✅ `examples/simulated_store_session.py` - generate and analyze synthetic data
 
 **Content for each example:**
 1. **Basic**: Load AOIs, simulate viewer samples, compute attention seconds, print results
+   - Shows minimal batch tracking (10 seconds of data)
+   - Demonstrates basic API usage with `compute_attention_seconds()`
+   - Prints per-AOI hit counts and top AOIs
 2. **Visualization**: Add heatmap overlay, save annotated image
+   - Simulates 100-second viewing session
+   - Generates multiple heatmap colormaps (hot, viridis)
+   - Adds text labels with hit counts and percentages
+   - Saves outputs to examples/output/
 3. **Analysis**: Export to DataFrame, compute statistics, identify top AOIs
+   - Demonstrates all result aggregation methods
+   - Shows DataFrame export (with pandas)
+   - Computes attention distribution percentages
+   - Displays viewing timeline
+   - Includes session summary statistics
 4. **Simulation**: Generate realistic viewer trajectory, analyze attention patterns
+   - Loads real store layout and AOI annotations
+   - Generates realistic browsing behavior (60 seconds)
+   - Simulates walking speed variations and pauses
+   - Creates natural view direction patterns (scanning shelves)
+   - Produces comprehensive visualizations (heatmap, timeline, path overlay)
 
 **Validation:**
-- Examples run without errors
-- Output is informative and correct
+- ✅ All examples run without errors
+- ✅ Output is informative and correct
+- ✅ Examples tested and verified working
+- ✅ Visualization outputs saved successfully
+- ✅ pandas DataFrame export working (optional dependency)
 
 ---
 
