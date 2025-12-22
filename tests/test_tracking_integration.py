@@ -35,11 +35,17 @@ from view_arc.tracking import (
 def make_unit_vector(angle_deg: float) -> tuple[float, float]:
     """Create a unit vector from an angle in degrees.
 
+    Note: In image coordinates where Y increases downward:
+    - 0° = right/east (+X direction)
+    - 90° = down/south (+Y direction)
+    - 180° = left/west (-X direction)
+    - 270° = up/north (-Y direction)
+
     Args:
-        angle_deg: Angle in degrees (0 = right, 90 = up, 180 = left, 270 = down)
+        angle_deg: Angle in degrees (standard math convention, counterclockwise from +X axis)
 
     Returns:
-        Unit vector (dx, dy)
+        Unit vector (dx, dy) in image coordinate system
     """
     angle_rad = math.radians(angle_deg)
     return (math.cos(angle_rad), math.sin(angle_rad))
@@ -104,7 +110,7 @@ def create_store_layout() -> list[AOI]:
     """Create a typical store layout with multiple shelves/displays.
 
     Store layout (bird's eye view, coordinates in pixels):
-    - Viewer enters from bottom (high Y values) and looks up (positive Y direction)
+    - Viewer enters from bottom (high Y values) and looks up/north (negative Y direction, 270°)
     - Shelves are on the north wall (low Y values)
     - Left shelf: (200, 100), 100x50
     - Center shelf: (400, 100), 100x50
@@ -525,15 +531,15 @@ class TestScenarioPeripheralViewing:
     def test_peripheral_viewing_aoi_at_edge(self) -> None:
         """AOI at exact edge of FOV should be detected."""
         # Create a simple scenario where we can precisely control the geometry
-        # Viewer at origin, looking up (90 degrees)
+        # Viewer at origin looking up/north (270 degrees in image coordinates)
         viewer_pos = (0.0, 0.0)
-        viewer_direction = make_unit_vector(90)
+        viewer_direction = make_unit_vector(270)
         fov = 60.0  # 60 degree FOV means ±30 degrees from center
 
         # Place AOI at exactly 30 degrees from center direction
-        # Center is at 90°, so edge is at 90° + 30° = 120°
-        # AOI should be at distance 100, angle 120°
-        aoi_angle_rad = math.radians(120)
+        # Center is at 270°, so edge is at 270° + 30° = 300°
+        # AOI should be at distance 100, angle 300°
+        aoi_angle_rad = math.radians(300)
         aoi_distance = 100.0
         aoi_x = aoi_distance * math.cos(aoi_angle_rad)
         aoi_y = aoi_distance * math.sin(aoi_angle_rad)
@@ -578,13 +584,14 @@ class TestScenarioPeripheralViewing:
         result = compute_attention_seconds(samples, aois, field_of_view_deg=90.0)
 
         # Largest AOI should win even if it's in periphery
-        winner_id = None
-        for aoi_id in ["center_small", "left_large", "right_medium"]:
-            if result.get_hit_count(aoi_id) > 0:
-                winner_id = aoi_id
-                break
+        left_large_hits = result.get_hit_count("left_large")
+        center_small_hits = result.get_hit_count("center_small")
+        right_medium_hits = result.get_hit_count("right_medium")
 
-        assert winner_id is not None, "Should detect at least one AOI"
+        # Assert that the largest AOI (left_large with half_size=40) wins
+        assert left_large_hits > 0, "Largest AOI should be detected"
+        assert left_large_hits >= center_small_hits, "Largest AOI should beat or tie with smaller center AOI"
+        assert left_large_hits >= right_medium_hits, "Largest AOI should beat or tie with medium peripheral AOI"
 
 
 # =============================================================================
