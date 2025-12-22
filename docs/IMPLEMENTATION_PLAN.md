@@ -357,11 +357,214 @@ For direct obstacle detection, use `view_arc.find_largest_obstacle()` or
 - **Validation:** Visual and numerical validation at each step
 - **Iteration:** Refactor as needed based on test results
 
+## Development Workflow
+
+### Environment Setup with uv
+
+This project uses [uv](https://github.com/astral-sh/uv) for fast, reliable Python environment management.
+
+```bash
+# Create virtual environment with Python 3.13
+uv venv --python 3.13
+
+# Activate the environment
+source .venv/bin/activate  # On Windows: .venv\Scripts\activate
+
+# Install project with dev dependencies
+uv pip install -e ".[dev]"
+```
+
+### Development Commands
+
+The project includes a `Makefile` with convenient development commands:
+
+```bash
+# Show all available commands
+make help
+
+# Full validation pipeline
+make check
+
+# Run tests
+make test
+make test-cov  # with coverage report
+make test-tracking  # only tracking tests
+make test-visual  # visual tests
+
+# Type checking
+make mypy
+
+# Code formatting and linting
+make format
+make lint
+make lint-fix  # auto-fix issues
+
+# Performance profiling
+make profile  # baseline
+make profile-all  # all scenarios
+make profile-save  # save to CSV
+
+# Run examples
+make example-basic
+make example-simulation
+
+# Clean up generated files
+make clean
+```
+
+#### Running Tests (using Make or uv)
+```bash
+# Using Make
+make test
+
+# Or using uv directly
+uv run pytest
+
+# Run specific test module
+uv run pytest tests/test_tracking_compute_attention.py
+
+# Run with coverage report
+uv run pytest --cov=view_arc --cov-report=html
+
+# Run only tracking tests
+uv run pytest tests/test_tracking_*.py
+
+# Run visual tests (generate output images)
+uv run pytest tests/visual/
+```
+
+#### Type Checking
+```bash
+# Check all files (required before commit)
+uv run mypy .
+
+# Check specific module
+uv run mypy view_arc/tracking/
+
+# The project enforces disallow_untyped_defs = true
+# All type errors must be fixed before committing
+```
+
+#### Code Formatting & Linting
+```bash
+# Format code with ruff
+uv run ruff format .
+
+# Check linting
+uv run ruff check .
+
+# Fix auto-fixable linting issues
+uv run ruff check --fix .
+```
+
+#### Performance Testing
+```bash
+# Run tracking performance baseline
+uv run python profile_workload.py --scenario tracking_baseline
+
+# Run all performance scenarios
+uv run python profile_workload.py --scenario all
+
+# Save results to CSV for trend tracking
+uv run python profile_workload.py --scenario tracking_baseline --save-csv
+
+# Results are saved to examples/output/profile_runs.csv
+```
+
+#### Running Examples
+```bash
+# Verify tracking functionality
+uv run python examples/attention_tracking_basic.py
+uv run python examples/simulated_store_session.py
+
+# Verify obstacle detection
+uv run python examples/basic_usage.py
+uv run python examples/visualization_demo.py
+```
+
+### Complete Validation Pipeline
+
+Before committing changes, run the full validation pipeline:
+
+```bash
+# Type check, test, and profile
+uv run mypy . && \
+uv run pytest && \
+uv run python profile_workload.py --scenario tracking_baseline
+```
+
+### Environment Variables
+
+The project does not currently require environment variables. If needed in the future, document them in `.env.example`:
+
+```bash
+# Example: Create .env.example if data paths are needed
+# DATA_PATH=/path/to/data
+# IMAGE_PATH=/path/to/images
+```
+
+### Continuous Integration
+
+For weekly regression detection in CI:
+
+```bash
+# Run baseline and save to CSV
+uv run python profile_workload.py --scenario tracking_baseline --save-csv
+
+# Compare against previous runs in examples/output/profile_runs.csv
+# Alert if runtime exceeds 120% of golden baseline
+# Alert if hit counts differ from expected values
+```
+
+### Adding New Features
+
+When implementing new features:
+
+1. **Create tests first** - Define expected behavior through tests
+2. **Run type checker** - Ensure new code has complete type hints
+3. **Run tests** - Verify implementation passes tests
+4. **Run profiler** - Check for performance regressions
+5. **Run examples** - Verify end-to-end functionality
+6. **Update docs** - Add to README and docstrings
+
+### Troubleshooting
+
+#### Virtual Environment Issues
+```bash
+# Remove and recreate environment
+rm -rf .venv
+uv venv --python 3.13
+source .venv/bin/activate
+uv pip install -e ".[dev]"
+```
+
+#### Type Errors
+```bash
+# Run mypy with verbose output
+uv run mypy --show-error-codes --pretty .
+
+# Check specific file
+uv run mypy --show-error-codes view_arc/tracking/algorithm.py
+```
+
+#### Test Failures
+```bash
+# Run with verbose output
+uv run pytest -v
+
+# Run with print statements visible
+uv run pytest -s
+
+# Debug specific test
+uv run pytest tests/test_tracking_compute_attention.py::test_compute_attention_single_sample -v
+```
+
 ## Success Criteria
 
 ✅ All tests pass with >90% coverage  
-✅ Performance <100ms per frame  
+✅ Performance <100ms per frame (obstacle detection), ~5-8ms per sample (tracking)  
 ✅ Handles all edge cases gracefully  
 ✅ Produces correct results on real images  
-✅ Clean code passing all linters  
-✅ Complete documentation
+✅ Clean code passing all linters (mypy, ruff)  
+✅ Complete documentation with API reference  
+✅ All examples run successfully

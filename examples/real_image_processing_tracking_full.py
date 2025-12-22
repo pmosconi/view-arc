@@ -275,7 +275,7 @@ def generate_view_directions(
             min_dist = float('inf')
             for aoi in aois:
                 centroid = np.mean(aoi.contour, axis=0)
-                dist = np.linalg.norm(centroid - current_pos)
+                dist = float(np.linalg.norm(centroid - current_pos))
                 if dist < min_dist:
                     min_dist = dist
                     closest_aoi = aoi

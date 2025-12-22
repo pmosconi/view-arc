@@ -138,8 +138,11 @@ def main() -> None:
     print("ANALYSIS 3: VIEWING TIMELINE (First 10 samples)")
     print("="*70)
     timeline = result.get_viewing_timeline()
-    for sample_idx, aoi_id in timeline[:10]:
-        aoi_str = f"'{aoi_id}'" if aoi_id else "None (no AOI visible)"
+    for sample_idx, aoi_id_maybe in timeline[:10]:
+        if aoi_id_maybe is not None:
+            aoi_str = f"'{str(aoi_id_maybe)}'"
+        else:
+            aoi_str = "None (no AOI visible)"
         print(f"  Sample {sample_idx:2d} (t={sample_idx}s): {aoi_str}")
     if len(timeline) > 10:
         print(f"  ... ({len(timeline) - 10} more samples)")

@@ -18,7 +18,7 @@ from view_arc import compute_attention_seconds
 from view_arc.tracking import AOI, ViewerSample, draw_attention_heatmap, draw_attention_labels
 
 
-def main():
+def main() -> None:
     """Generate a simulated attention tracking session and visualize results."""
 
     # Define three shelf AOIs in a store (simplified rectangular shelves)

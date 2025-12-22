@@ -118,8 +118,8 @@ def main() -> None:
     
     print()
     print("Top AOIs by attention:")
-    for rank, (aoi_id, hit_count) in enumerate(result.get_top_aois(3), 1):
-        print(f"  #{rank}: {aoi_id} - {hit_count} seconds")
+    for rank, (top_aoi_id, hit_count) in enumerate(result.get_top_aois(3), 1):
+        print(f"  #{rank}: {top_aoi_id} - {hit_count} seconds")
     
     print()
     print("="*60)

@@ -96,7 +96,7 @@ def profile_scenario(
     }
 
 
-def main():
+def main() -> None:
     """Run profiling scenarios."""
     print("Performance Profiling for Step 6.2: Batch Optimization Opportunities")
     print("="*70)
