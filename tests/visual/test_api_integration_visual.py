@@ -9,7 +9,8 @@ These tests create matplotlib figures showing:
 - Max range limiting scenarios
 - Complex polygon contours
 
-Run with: pytest tests/visual/test_api_integration_visual.py -v
+These tests are marked as 'visual' and are NOT run by default.
+Run with: pytest -m visual tests/visual/test_api_integration_visual.py -v
 
 Output figures are saved to: tests/visual/output/
 """
@@ -17,6 +18,8 @@ Output figures are saved to: tests/visual/output/
 from __future__ import annotations
 
 import pytest
+
+pytestmark = pytest.mark.visual
 import numpy as np
 from pathlib import Path
 from typing import TYPE_CHECKING, List, Optional, Tuple

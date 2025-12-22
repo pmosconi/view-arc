@@ -469,21 +469,40 @@ Variables documented in `.env.example`:
 ### Running Tests
 
 ```bash
-# Run all tests
+# Run all automated tests (excludes visual tests)
 uv run pytest
-
-# Run specific test file
-uv run pytest tests/test_tracking_compute_attention.py
 
 # Run with coverage report
 uv run pytest --cov=view_arc --cov-report=html
 
+# Run specific test module
+uv run pytest tests/test_tracking_compute_attention.py
+
 # Run only tracking tests
 uv run pytest tests/test_tracking_*.py
-
-# Run visual tests (generate output images)
-uv run pytest tests/visual/
 ```
+
+**Visual Tests (Optional):**
+
+Visual tests generate matplotlib/OpenCV figures for manual inspection but do not run assertions. They are marked with `@pytest.mark.visual` and excluded from the default test suite.
+
+```bash
+# Run all visual tests (generates output images)
+uv run pytest -m visual
+
+# Run specific visual test file
+uv run pytest -m visual tests/visual/test_api_visual.py
+
+# Combine with other markers
+uv run pytest -m "visual and not slow"
+```
+
+Visual test outputs are saved to `tests/visual/output/`. These tests are useful for:
+- Debugging clipping and sweep algorithms
+- Verifying obstacle detection visualization
+- Creating documentation figures
+
+**Note:** The main test suite (`pytest` without `-m visual`) provides complete behavioral coverage. Visual tests serve as supplementary validation tools, not correctness checks.
 
 ### Type Checking
 

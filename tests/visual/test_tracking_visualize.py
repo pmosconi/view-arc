@@ -5,6 +5,9 @@ These tests verify that the heatmap and label drawing functions produce
 correct visual output. Output images are saved to tests/visual/output/
 for manual inspection.
 
+These tests are marked as 'visual' and are NOT run by default.
+Run with: pytest -m visual tests/visual/test_tracking_visualize.py -v
+
 **REQUIREMENTS**: These tests require OpenCV (cv2) to run. The dependency
 is included in the [dev] extras (opencv-python-headless) and must be
 installed for CI/test environments. If cv2 is missing, tests will FAIL
@@ -18,6 +21,8 @@ from typing import cast
 
 import numpy as np
 import pytest
+
+pytestmark = pytest.mark.visual
 
 # Import cv2 directly - fail loudly if missing rather than silently skipping
 try:

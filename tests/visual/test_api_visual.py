@@ -8,12 +8,15 @@ These tests create matplotlib figures showing:
 - Angular coverage visualization
 - Occlusion scenarios
 
-Run with: pytest tests/visual/test_api_visual.py -v
+These tests are marked as 'visual' and are NOT run by default.
+Run with: pytest -m visual tests/visual/test_api_visual.py -v
 
 Output figures are saved to: tests/visual/output/
 """
 
 import pytest
+
+pytestmark = pytest.mark.visual
 import numpy as np
 from pathlib import Path
 from typing import List, Optional, Tuple

@@ -52,4 +52,7 @@ testpaths = ["tests"]
 python_files = ["test_*.py"]
 python_classes = ["Test*"]
 python_functions = ["test_*"]
-addopts = "-v --cov=view_arc --cov-report=term-missing"
+addopts = "-v --cov=view_arc --cov-report=term-missing -m 'not visual'"
+markers = [
+    "visual: marks tests as visual validation (deselected by default, run with -m visual)",
+]

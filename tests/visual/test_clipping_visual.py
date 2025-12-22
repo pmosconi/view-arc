@@ -6,12 +6,15 @@ These tests create matplotlib figures showing:
 - Clipping boundaries (half-planes)
 - Clipped results
 
-Run with: pytest tests/visual/test_clipping_visual.py -v
+These tests are marked as 'visual' and are NOT run by default.
+Run with: pytest -m visual tests/visual/test_clipping_visual.py -v
 
 Output figures are saved to: tests/visual/output/
 """
 
 import pytest
+
+pytestmark = pytest.mark.visual
 import numpy as np
 from pathlib import Path
 

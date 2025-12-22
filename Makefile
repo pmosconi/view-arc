@@ -19,7 +19,7 @@ test-tracking:  ## Run only tracking tests
 	uv run pytest tests/test_tracking_*.py
 
 test-visual:  ## Run visual tests (generates output images)
-	uv run pytest tests/visual/
+	uv run pytest -m visual
 
 mypy:  ## Run type checking with mypy
 	uv run mypy .
