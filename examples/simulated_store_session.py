@@ -13,6 +13,9 @@ The simulation creates a realistic browsing session where a viewer:
 - Looks around while moving (scanning shelves)
 - Stays within the shop floor boundaries
 
+For reproducible results, set a random seed:
+    main(seed=42)  # Will generate identical paths/directions each run
+
 Run with::
 
     uv run python examples/simulated_store_session.py
@@ -152,6 +155,7 @@ def generate_browsing_path(
     duration_sec: float,
     sample_rate: float,
     avg_speed: float,
+    seed: int | None = None,
 ) -> list[tuple[float, float]]:
     """Generate a realistic browsing path within shop floor bounds.
     
@@ -160,7 +164,18 @@ def generate_browsing_path(
     - Moves with some randomness but stays within bounds
     - Occasionally pauses (speed variations)
     - Turns gradually (not sharp angles)
+    
+    Args:
+        shop_floor: Polygon vertices defining walkable area
+        duration_sec: Total simulation duration in seconds
+        sample_rate: Samples per second (Hz)
+        avg_speed: Average movement speed in pixels/second
+        seed: Random seed for reproducibility (optional)
+    
+    Returns:
+        List of (x, y) position tuples, one per sample
     """
+    rng = np.random.default_rng(seed)
     num_samples = int(duration_sec * sample_rate)
     
     # Start position near entrance (midpoint between vertices 1 and 2)
@@ -182,14 +197,14 @@ def generate_browsing_path(
         dt = 1.0 / sample_rate
         
         # Speed variation (sometimes pause, sometimes faster)
-        speed_variation = np.random.uniform(0.5, 1.3)
-        if np.random.random() < 0.1:  # 10% chance to pause
+        speed_variation = rng.uniform(0.5, 1.3)
+        if rng.random() < 0.1:  # 10% chance to pause
             speed_variation = 0.1
         
         current_speed = avg_speed * speed_variation
         
         # Direction change: gradual turning + some randomness
-        turn_angle = np.random.uniform(-0.3, 0.3)  # Radians
+        turn_angle = rng.uniform(-0.3, 0.3)  # Radians
         cos_a, sin_a = np.cos(turn_angle), np.sin(turn_angle)
         current_direction = np.array([
             current_direction[0] * cos_a - current_direction[1] * sin_a,
@@ -206,7 +221,7 @@ def generate_browsing_path(
         attempt = 0
         while not point_in_polygon(new_pos, shop_floor) and attempt < max_attempts:
             # Reflect direction
-            turn_angle = np.random.uniform(np.pi/2, np.pi)
+            turn_angle = rng.uniform(np.pi/2, np.pi)
             cos_a, sin_a = np.cos(turn_angle), np.sin(turn_angle)
             current_direction = np.array([
                 current_direction[0] * cos_a - current_direction[1] * sin_a,
@@ -229,6 +244,7 @@ def generate_browsing_path(
 def generate_view_directions(
     positions: list[tuple[float, float]],
     aois: list[AOI],
+    seed: int | None = None,
 ) -> list[tuple[float, float]]:
     """Generate view directions that combine movement direction and scanning.
     
@@ -236,7 +252,16 @@ def generate_view_directions(
     - Generally looks in the direction of movement
     - Scans left/right occasionally (shelf browsing)
     - Sometimes looks at nearby AOIs
+    
+    Args:
+        positions: List of (x, y) viewer positions
+        aois: List of AOI objects to potentially look at
+        seed: Random seed for reproducibility (optional)
+    
+    Returns:
+        List of (dx, dy) normalized direction vectors
     """
+    rng = np.random.default_rng(seed)
     num_samples = len(positions)
     directions: list[tuple[float, float]] = []
     
@@ -258,11 +283,11 @@ def generate_view_directions(
             movement_dir = np.array([1.0, 0.0])
         
         # Add scanning behavior
-        scan_mode = np.random.random()
+        scan_mode = rng.random()
         
         if scan_mode < 0.6:
             # 60% - Look in movement direction with small variations
-            angle_offset = np.random.uniform(-0.2, 0.2)
+            angle_offset = rng.uniform(-0.2, 0.2)
             cos_a, sin_a = np.cos(angle_offset), np.sin(angle_offset)
             view_dir = np.array([
                 movement_dir[0] * cos_a - movement_dir[1] * sin_a,
@@ -271,7 +296,7 @@ def generate_view_directions(
         elif scan_mode < 0.85:
             # 25% - Scan left or right (perpendicular to movement)
             perpendicular = np.array([-movement_dir[1], movement_dir[0]])
-            if np.random.random() < 0.5:
+            if rng.random() < 0.5:
                 perpendicular = -perpendicular
             # Add some forward component
             view_dir = 0.5 * movement_dir + 0.5 * perpendicular
@@ -282,7 +307,7 @@ def generate_view_directions(
             min_dist = float('inf')
             for aoi in aois:
                 centroid = np.mean(aoi.contour, axis=0)
-                dist = np.linalg.norm(centroid - current_pos)
+                dist = float(np.linalg.norm(centroid - current_pos))
                 if dist < min_dist:
                     min_dist = dist
                     closest_aoi = aoi
@@ -335,12 +360,19 @@ def draw_viewer_path(
     return output
 
 
-def main() -> None:
-    """Generate synthetic tracking data and visualize results."""
+def main(seed: int | None = None) -> None:
+    """Generate synthetic tracking data and visualize results.
+    
+    Args:
+        seed: Random seed for reproducible simulations (optional).
+              When set, generates identical paths and view directions.
+    """
     
     print("="*60)
     print("SIMULATED STORE SESSION")
     print("="*60)
+    if seed is not None:
+        print(f"Using random seed: {seed}")
     print()
     
     print("Loading scene and AOIs...")
@@ -359,6 +391,7 @@ def main() -> None:
         DURATION_SECONDS,
         SAMPLE_RATE_HZ,
         AVG_SPEED_PX_PER_SEC,
+        seed=seed,
     )
     
     print(f"  Generated {len(positions)} position samples")
@@ -371,7 +404,7 @@ def main() -> None:
     print()
     
     print("Generating view directions...")
-    directions = generate_view_directions(positions, aois)
+    directions = generate_view_directions(positions, aois, seed=seed)
     print(f"  Generated {len(directions)} direction samples")
     print()
     

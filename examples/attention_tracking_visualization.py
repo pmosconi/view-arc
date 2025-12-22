@@ -23,8 +23,9 @@ from pathlib import Path
 try:
     import cv2
 except ImportError:
-    print("This example requires OpenCV. Install with: uv pip install opencv-python")
-    exit(1)
+    raise SystemExit(
+        "This example requires OpenCV. Install with: uv pip install opencv-python"
+    )
 
 from view_arc.tracking import (
     AOI,
