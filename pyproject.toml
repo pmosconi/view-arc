@@ -1,5 +1,5 @@
 [project]
-name = "view-arc"
+name = "actvalue.view-arc"
 version = "0.1.0"
 description = "Obstacle detection within view arc using angular coverage analysis"
 readme = "README.md"
@@ -19,8 +19,6 @@ classifiers = [
 ]
 dependencies = [
     "numpy>=2.0.0",
-    "opencv-python>=4.10.0",
-    "scikit-image>=0.24.0",
 ]
 
 [project.urls]
@@ -30,6 +28,15 @@ Issues = "https://github.com/pmosconi/view-arc/issues"
 Documentation = "https://github.com/pmosconi/view-arc#readme"
 
 [project.optional-dependencies]
+viz = [
+    "opencv-python>=4.10.0",
+    "matplotlib>=3.9.0",
+]
+examples = [
+    "opencv-python>=4.10.0",
+    "scikit-image>=0.24.0",
+    "matplotlib>=3.9.0",
+]
 dev = [
     "pytest>=8.0.0",
     "pytest-cov>=4.1.0",
@@ -38,6 +45,7 @@ dev = [
     "mypy>=1.11.0",
     "matplotlib>=3.9.0",
     "opencv-python-headless>=4.10.0",  # Required for visualization tests
+    "twine>=5.0.0",  # For PyPI publishing
 ]
 
 [build-system]

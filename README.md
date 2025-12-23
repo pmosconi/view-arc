@@ -9,13 +9,23 @@ Track viewer attention on Areas of Interest (AOIs) over time by analyzing where 
 ## Installation
 
 ```bash
-uv venv --python 3.13
-source .venv/bin/activate  # On Windows: .venv\Scripts\activate
-uv pip install -e .
+# Basic installation (numpy only)
+uv pip install actvalue.view-arc
+
+# With visualization support
+uv pip install actvalue.view-arc[viz]
+
+# With examples support
+uv pip install actvalue.view-arc[examples]
+
+# For development
+uv pip install actvalue.view-arc[dev]
 ```
 
-For development:
+For local development:
 ```bash
+uv venv --python 3.13
+source .venv/bin/activate  # On Windows: .venv\Scripts\activate
 uv pip install -e ".[dev]"
 ```
 

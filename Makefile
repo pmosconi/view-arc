@@ -1,4 +1,4 @@
-.PHONY: help install test test-cov test-tracking test-visual mypy lint format profile clean
+.PHONY: help install test test-cov test-tracking test-visual mypy lint format profile clean build publish-test publish clean-build
 
 help:  ## Show this help message
 	@echo 'Usage: make [target]'
@@ -67,3 +67,20 @@ clean:  ## Clean up generated files
 	rm -rf tests/visual/output/*.png
 	find . -type d -name "__pycache__" -exec rm -rf {} + 2>/dev/null || true
 	find . -type f -name "*.pyc" -delete
+# ==============================================================================
+# PyPI Publishing
+# ==============================================================================
+
+build:  ## Build distribution packages (wheel and sdist)
+	uv build
+
+publish-test:  ## Upload to TestPyPI (requires TWINE_USERNAME and TWINE_PASSWORD or token)
+	uv run twine upload --repository testpypi dist/*
+
+publish:  ## Upload to PyPI (requires TWINE_USERNAME and TWINE_PASSWORD or token)
+	uv run twine upload dist/*
+
+clean-build:  ## Clean build artifacts
+	rm -rf dist/
+	rm -rf build/
+	rm -rf *.egg-info
