@@ -12,14 +12,14 @@ Track viewer attention on Areas of Interest (AOIs) over time by analyzing where 
 # Basic installation (numpy only)
 uv pip install actvalue.view-arc
 
-# With visualization support
-uv pip install actvalue.view-arc[viz]
+# With all optional features (visualization + examples)
+uv pip install "actvalue.view-arc[all]"
 
-# With examples support
-uv pip install actvalue.view-arc[examples]
+# With visualization support only (opencv + matplotlib)
+uv pip install "actvalue.view-arc[viz]"
 
 # For development
-uv pip install actvalue.view-arc[dev]
+uv pip install "actvalue.view-arc[dev]"
 ```
 
 For local development:

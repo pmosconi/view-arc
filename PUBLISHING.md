@@ -91,15 +91,17 @@ python -c "from view_arc import compute_attention_seconds; print('Success!')"
 Users can install optional dependencies:
 
 ```bash
-# For visualization functions
-pip install actvalue.view-arc[viz]
+# All optional features (visualization + examples)
+pip install actvalue.view-arc[all]
 
-# For running examples
-pip install actvalue.view-arc[examples]
+# For visualization functions only
+pip install actvalue.view-arc[viz]
 
 # For development
 pip install actvalue.view-arc[dev]
 ```
+
+**Note:** The `[examples]` extra is also available and is equivalent to `[all]`.
 
 ## Notes
 

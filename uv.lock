@@ -8,6 +8,62 @@ resolution-markers = [
 ]
 
 [[package]]
+name = "actvalue-view-arc"
+version = "0.1.1"
+source = { editable = "." }
+dependencies = [
+    { name = "numpy" },
+]
+
+[package.optional-dependencies]
+all = [
+    { name = "matplotlib" },
+    { name = "opencv-python" },
+    { name = "scikit-image" },
+]
+dev = [
+    { name = "black" },
+    { name = "matplotlib" },
+    { name = "mypy" },
+    { name = "opencv-python-headless" },
+    { name = "pytest" },
+    { name = "pytest-cov" },
+    { name = "ruff" },
+    { name = "twine" },
+]
+examples = [
+    { name = "matplotlib" },
+    { name = "opencv-python" },
+    { name = "scikit-image" },
+]
+viz = [
+    { name = "matplotlib" },
+    { name = "opencv-python" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "black", marker = "extra == 'dev'", specifier = ">=24.0.0" },
+    { name = "matplotlib", marker = "extra == 'all'", specifier = ">=3.9.0" },
+    { name = "matplotlib", marker = "extra == 'dev'", specifier = ">=3.9.0" },
+    { name = "matplotlib", marker = "extra == 'examples'", specifier = ">=3.9.0" },
+    { name = "matplotlib", marker = "extra == 'viz'", specifier = ">=3.9.0" },
+    { name = "mypy", marker = "extra == 'dev'", specifier = ">=1.11.0" },
+    { name = "numpy", specifier = ">=2.0.0" },
+    { name = "opencv-python", marker = "extra == 'all'", specifier = ">=4.10.0" },
+    { name = "opencv-python", marker = "extra == 'examples'", specifier = ">=4.10.0" },
+    { name = "opencv-python", marker = "extra == 'viz'", specifier = ">=4.10.0" },
+    { name = "opencv-python-headless", marker = "extra == 'dev'", specifier = ">=4.10.0" },
+    { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0.0" },
+    { name = "pytest-cov", marker = "extra == 'dev'", specifier = ">=4.1.0" },
+    { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.6.0" },
+    { name = "scikit-image", marker = "extra == 'all'", specifier = ">=0.24.0" },
+    { name = "scikit-image", marker = "extra == 'examples'", specifier = ">=0.24.0" },
+    { name = "twine", marker = "extra == 'dev'", specifier = ">=5.0.0" },
+]
+provides-extras = ["viz", "examples", "dev", "all"]
+
+[[package]]
 name = "black"
 version = "25.11.0"
 source = { registry = "https://pypi.org/simple" }
@@ -1215,51 +1271,3 @@ sdist = { url = "https://files.pythonhosted.org/packages/1e/24/a2a2ed9addd907787
 wheels = [
     { url = "https://files.pythonhosted.org/packages/6d/b9/4095b668ea3678bf6a0af005527f39de12fb026516fb3df17495a733b7f8/urllib3-2.6.2-py3-none-any.whl", hash = "sha256:ec21cddfe7724fc7cb4ba4bea7aa8e2ef36f607a4bab81aa6ce42a13dc3f03dd", size = 131182, upload-time = "2025-12-11T15:56:38.584Z" },
 ]
-
-[[package]]
-name = "view-arc"
-version = "0.1.0"
-source = { editable = "." }
-dependencies = [
-    { name = "numpy" },
-]
-
-[package.optional-dependencies]
-dev = [
-    { name = "black" },
-    { name = "matplotlib" },
-    { name = "mypy" },
-    { name = "opencv-python-headless" },
-    { name = "pytest" },
-    { name = "pytest-cov" },
-    { name = "ruff" },
-    { name = "twine" },
-]
-examples = [
-    { name = "matplotlib" },
-    { name = "opencv-python" },
-    { name = "scikit-image" },
-]
-viz = [
-    { name = "matplotlib" },
-    { name = "opencv-python" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "black", marker = "extra == 'dev'", specifier = ">=24.0.0" },
-    { name = "matplotlib", marker = "extra == 'dev'", specifier = ">=3.9.0" },
-    { name = "matplotlib", marker = "extra == 'examples'", specifier = ">=3.9.0" },
-    { name = "matplotlib", marker = "extra == 'viz'", specifier = ">=3.9.0" },
-    { name = "mypy", marker = "extra == 'dev'", specifier = ">=1.11.0" },
-    { name = "numpy", specifier = ">=2.0.0" },
-    { name = "opencv-python", marker = "extra == 'examples'", specifier = ">=4.10.0" },
-    { name = "opencv-python", marker = "extra == 'viz'", specifier = ">=4.10.0" },
-    { name = "opencv-python-headless", marker = "extra == 'dev'", specifier = ">=4.10.0" },
-    { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0.0" },
-    { name = "pytest-cov", marker = "extra == 'dev'", specifier = ">=4.1.0" },
-    { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.6.0" },
-    { name = "scikit-image", marker = "extra == 'examples'", specifier = ">=0.24.0" },
-    { name = "twine", marker = "extra == 'dev'", specifier = ">=5.0.0" },
-]
-provides-extras = ["viz", "examples", "dev"]
