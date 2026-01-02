@@ -584,6 +584,42 @@ def _draw_no_samples_message(
     )
 
 
+def _draw_sample_separators(
+    canvas: NDArray[np.uint8],
+    sample_boundaries: list[tuple[int, int]],
+    timeline_top: int,
+    timeline_bottom: int,
+    separator_color: Color,
+    separator_thickness: int = 1,
+) -> None:
+    """Draw vertical separator lines between samples on the timeline.
+    
+    Args:
+        canvas: Canvas to draw on
+        sample_boundaries: List of (start_x, end_x) tuples for each sample
+        timeline_top: Y coordinate of top of timeline bar
+        timeline_bottom: Y coordinate of bottom of timeline bar
+        separator_color: BGR color for separator lines
+        separator_thickness: Thickness of separator lines in pixels
+    """
+    if not sample_boundaries or len(sample_boundaries) <= 1:
+        return
+    
+    # Draw vertical lines at the boundaries between samples
+    for i in range(len(sample_boundaries) - 1):
+        # Get the end of current sample (which is start of next sample)
+        _, end_x = sample_boundaries[i]
+        # Clamp to canvas bounds
+        x = max(0, min(end_x, canvas.shape[1] - 1))
+        cv2.line(
+            canvas,
+            (x, timeline_top),
+            (x, timeline_bottom),
+            separator_color,
+            separator_thickness,
+        )
+
+
 def _draw_legend(
     canvas: NDArray[np.uint8],
     color_map: dict[str | int, Color],
@@ -645,8 +681,31 @@ def draw_viewing_timeline(
     timeline_padding: int = 16,
     font_scale: float = 0.5,
     font_thickness: int = 1,
+    draw_sample_separators: bool = True,
+    separator_color: Color = (180, 180, 180),
+    separator_thickness: int = 1,
 ) -> NDArray[np.uint8]:
-    """Render a horizontal timeline describing which AOI was viewed per sample."""
+    """Render a horizontal timeline describing which AOI was viewed per sample.
+    
+    Args:
+        tracking_result: Result containing hit data and timestamps
+        width: Width of output image in pixels
+        height: Height of output image in pixels
+        aoi_colors: Optional mapping of AOI IDs to BGR colors
+        gap_color: Color for samples with no winner
+        background_color: Color for canvas background
+        show_legend: Whether to show color legend
+        legend_columns: Number of columns in legend
+        timeline_padding: Padding around timeline bar
+        font_scale: Font size for text
+        font_thickness: Font thickness for text
+        draw_sample_separators: Whether to draw lines between samples
+        separator_color: BGR color for separator lines
+        separator_thickness: Thickness of separator lines in pixels
+        
+    Returns:
+        Timeline image as numpy array
+    """
 
     _ensure_cv2()
 
@@ -682,6 +741,17 @@ def draw_viewing_timeline(
             timeline_bottom,
             tracking_result.total_samples,
         )
+        
+        # Draw separator lines between samples if requested
+        if draw_sample_separators:
+            _draw_sample_separators(
+                canvas,
+                sample_boundaries,
+                timeline_top,
+                timeline_bottom,
+                separator_color,
+                separator_thickness,
+            )
     else:
         _draw_no_samples_message(canvas, timeline_top, timeline_bottom, font_scale, font_thickness)
 
@@ -716,8 +786,36 @@ def create_tracking_animation(
     draw_cursor: bool = True,
     cursor_color: Color = (0, 0, 0),
     annotate_progress: bool = True,
+    draw_sample_separators: bool = True,
+    separator_color: Color = (180, 180, 180),
+    separator_thickness: int = 1,
 ) -> list[NDArray[np.uint8]]:
-    """Create animation frames showing timeline progression across the session."""
+    """Create animation frames showing timeline progression across the session.
+    
+    Args:
+        tracking_result: Result containing hit data and timestamps
+        width: Width of output image in pixels
+        height: Height of output image in pixels
+        samples_per_frame: Number of samples to process per animation frame
+        aoi_colors: Optional mapping of AOI IDs to BGR colors
+        gap_color: Color for samples with no winner
+        background_color: Color for canvas background
+        future_color: Color for unprocessed samples
+        show_legend: Whether to show color legend
+        legend_columns: Number of columns in legend
+        timeline_padding: Padding around timeline bar
+        font_scale: Font size for text
+        font_thickness: Font thickness for text
+        draw_cursor: Whether to draw cursor at current position
+        cursor_color: BGR color for cursor line
+        annotate_progress: Whether to show progress text
+        draw_sample_separators: Whether to draw lines between samples
+        separator_color: BGR color for separator lines
+        separator_thickness: Thickness of separator lines in pixels
+        
+    Returns:
+        List of animation frames as numpy arrays
+    """
 
     _ensure_cv2()
     if samples_per_frame <= 0:
@@ -784,6 +882,17 @@ def create_tracking_animation(
             processed,
             future_color=future_color,
         )
+        
+        # Draw separator lines between samples if requested
+        if draw_sample_separators:
+            _draw_sample_separators(
+                frame,
+                sample_boundaries,
+                timeline_top,
+                timeline_bottom,
+                separator_color,
+                separator_thickness,
+            )
 
         if draw_cursor and sample_boundaries:
             if processed <= 0:
