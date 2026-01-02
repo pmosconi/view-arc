@@ -94,6 +94,7 @@ def _validate_frame_size(
 
 def normalize_sample_input(
     samples: SampleInput,
+    allow_missing_direction: bool = False,
 ) -> list[ViewerSample]:
     """Normalize various input formats to a list of ViewerSample objects.
 
@@ -106,6 +107,10 @@ def normalize_sample_input(
     Args:
         samples: Either a list of ViewerSample objects or a numpy array
             of shape (N, 4) where each row is [x, y, dx, dy].
+        allow_missing_direction: If True, allows zero-magnitude direction vectors
+            in NumPy arrays to be converted to (0.0, 0.0) sentinel with the flag set.
+            For list inputs, samples are returned as-is and their individual flags
+            are respected. Default False maintains strict validation.
 
     Returns:
         List of ViewerSample objects.
@@ -113,9 +118,9 @@ def normalize_sample_input(
     Raises:
         ValidationError: If samples format is unrecognized
         ValidationError: If numpy array shape is not (N, 4)
-        ValidationError: If any direction vector has zero magnitude
+        ValidationError: If any direction vector has zero magnitude and allow_missing_direction=False
     """
-    # Already a list - return as-is (validation happens later)
+    # Already a list - return as-is (validation happens later, individual flags respected)
     if isinstance(samples, list):
         return samples
 
@@ -138,9 +143,20 @@ def normalize_sample_input(
             # Normalize direction to unit vector
             mag = math.sqrt(dx * dx + dy * dy)
             if mag == 0:
-                raise ValidationError(
-                    f"Sample at index {i} has zero-magnitude direction vector"
-                )
+                if allow_missing_direction:
+                    # Create sample with missing direction sentinel
+                    result.append(
+                        ViewerSample(
+                            position=(x, y),
+                            direction=(0.0, 0.0),
+                            allow_missing_direction=True,
+                        )
+                    )
+                    continue
+                else:
+                    raise ValidationError(
+                        f"Sample at index {i} has zero-magnitude direction vector"
+                    )
             dx_norm, dy_norm = dx / mag, dy / mag
             result.append(
                 ViewerSample(

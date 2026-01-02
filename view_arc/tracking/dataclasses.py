@@ -34,21 +34,27 @@ class ValidationError(Exception):
     pass
 
 
-def _validate_direction(direction: tuple[float, float]) -> None:
+def _validate_direction(direction: tuple[float, float], allow_missing: bool = False) -> None:
     """Validate that direction is a unit vector with exactly 2 components.
 
     Args:
         direction: A 2D direction vector (dx, dy)
+        allow_missing: If True, allows (0.0, 0.0) as a valid missing direction sentinel
 
     Raises:
         ValidationError: If direction does not have exactly 2 components
-        ValidationError: If direction is not a unit vector
+        ValidationError: If direction is not a unit vector (unless allow_missing and direction is (0, 0))
     """
     # Check that direction has exactly 2 components
     if len(direction) != 2:
         raise ValidationError(
             f"Direction must have exactly 2 components (dx, dy), got {len(direction)} components"
         )
+    
+    # Allow (0.0, 0.0) as missing direction sentinel if flag is set
+    if allow_missing and direction == (0.0, 0.0):
+        return
+    
     try:
         validate_and_get_direction_angle(np.array(direction, dtype=np.float32))
     except ValueError as e:
@@ -81,6 +87,18 @@ def _validate_contour(contour: NDArray[np.floating[Any]]) -> None:
         )
 
 
+def is_missing_direction(direction: tuple[float, float]) -> bool:
+    """Check if direction represents missing data.
+    
+    Args:
+        direction: A 2D direction vector (dx, dy)
+    
+    Returns:
+        True if direction is the (0.0, 0.0) sentinel value, False otherwise
+    """
+    return direction == (0.0, 0.0)
+
+
 @dataclass(frozen=True)
 class ViewerSample:
     """A single observation of viewer position and view direction.
@@ -90,21 +108,27 @@ class ViewerSample:
 
     Attributes:
         position: The (x, y) position of the viewer in image coordinates
-        direction: A unit vector (dx, dy) indicating the view direction
+        direction: A unit vector (dx, dy) indicating the view direction, or (0.0, 0.0)
+                   for missing direction data when allow_missing_direction is True
         timestamp: Optional timestamp for ordering validation; if provided,
                    represents seconds from session start
+        allow_missing_direction: If True, allows direction to be (0.0, 0.0) as a sentinel
+                                for missing direction data. Default False maintains strict
+                                unit vector validation.
 
     Raises:
-        ValidationError: If direction is not a unit vector
+        ValidationError: If direction is not a unit vector (unless allow_missing_direction
+                        is True and direction is (0.0, 0.0))
     """
 
     position: tuple[float, float]
     direction: tuple[float, float]
     timestamp: float | None = None
+    allow_missing_direction: bool = False
 
     def __post_init__(self) -> None:
-        """Validate that direction is a unit vector."""
-        _validate_direction(self.direction)
+        """Validate that direction is a unit vector or missing if allowed."""
+        _validate_direction(self.direction, allow_missing=self.allow_missing_direction)
 
     @property
     def position_array(self) -> NDArray[np.float64]:

@@ -615,3 +615,92 @@ class TestTrackingResultValidation:
             samples_no_winner=10,
         )
         assert result.coverage_ratio == 0.0
+
+
+# =============================================================================
+# Tests: ViewerSample - Missing Direction
+# =============================================================================
+
+
+class TestViewerSampleMissingDirection:
+    """Test ViewerSample handling of missing direction data."""
+
+    def test_missing_direction_rejected_by_default(self) -> None:
+        """Test that ViewerSample(direction=(0, 0)) raises error by default."""
+        with pytest.raises(ValidationError) as exc_info:
+            ViewerSample(position=(100.0, 100.0), direction=(0.0, 0.0))
+        
+        assert "unit vector" in str(exc_info.value).lower()
+
+    def test_missing_direction_accepted_with_flag(self) -> None:
+        """Test that ViewerSample(direction=(0, 0), allow_missing_direction=True) succeeds."""
+        sample = ViewerSample(
+            position=(100.0, 100.0),
+            direction=(0.0, 0.0),
+            allow_missing_direction=True
+        )
+        
+        assert sample.position == (100.0, 100.0)
+        assert sample.direction == (0.0, 0.0)
+        assert sample.allow_missing_direction is True
+
+    def test_missing_direction_false_with_zero_direction(self) -> None:
+        """Test that ViewerSample(direction=(0, 0), allow_missing_direction=False) raises error."""
+        with pytest.raises(ValidationError) as exc_info:
+            ViewerSample(
+                position=(100.0, 100.0),
+                direction=(0.0, 0.0),
+                allow_missing_direction=False
+            )
+        
+        assert "unit vector" in str(exc_info.value).lower()
+
+    def test_is_missing_direction_utility(self) -> None:
+        """Test the is_missing_direction() helper function."""
+        from view_arc.tracking.dataclasses import is_missing_direction
+        
+        # Missing direction
+        assert is_missing_direction((0.0, 0.0)) is True
+        
+        # Valid directions
+        assert is_missing_direction((1.0, 0.0)) is False
+        assert is_missing_direction((0.0, 1.0)) is False
+        assert is_missing_direction((0.707, 0.707)) is False
+        assert is_missing_direction((-1.0, 0.0)) is False
+
+    def test_missing_direction_field_in_frozen_dataclass(self) -> None:
+        """Test that allow_missing_direction field works with frozen dataclass."""
+        # Create sample with flag
+        sample = ViewerSample(
+            position=(100.0, 100.0),
+            direction=(0.0, 0.0),
+            allow_missing_direction=True
+        )
+        
+        # Verify field is accessible
+        assert hasattr(sample, 'allow_missing_direction')
+        assert sample.allow_missing_direction is True
+        
+        # Verify dataclass is still frozen
+        with pytest.raises(AttributeError):
+            sample.allow_missing_direction = False  # type: ignore[misc]
+
+    def test_missing_direction_with_valid_direction_allowed(self) -> None:
+        """Test that allow_missing_direction=True doesn't prevent valid directions."""
+        sample = ViewerSample(
+            position=(100.0, 100.0),
+            direction=(1.0, 0.0),
+            allow_missing_direction=True
+        )
+        
+        assert sample.direction == (1.0, 0.0)
+        assert sample.allow_missing_direction is True
+
+    def test_missing_direction_default_is_false(self) -> None:
+        """Test that allow_missing_direction defaults to False."""
+        sample = ViewerSample(
+            position=(100.0, 100.0),
+            direction=(1.0, 0.0)
+        )
+        
+        assert sample.allow_missing_direction is False

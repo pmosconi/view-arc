@@ -22,6 +22,7 @@ from numpy.typing import NDArray
 from view_arc.tracking import (
     AOI,
     SessionConfig,
+    ValidationError,
     ViewerSample,
     compute_attention_seconds,
 )
@@ -818,3 +819,210 @@ class TestScenarioEdgeCases:
         # Should still process correctly despite unrealistic movement
         assert result.samples_with_hits >= 0
         assert result.samples_with_hits <= 8
+
+
+# =============================================================================
+# Tests: Scenarios - Missing Direction Handling
+# =============================================================================
+
+
+class TestScenarioMissingDirection:
+    """Test scenarios with missing direction data."""
+
+    def test_compute_attention_numpy_mixed_samples(self) -> None:
+        """Test NumPy array with mix of valid and (0, 0) directions."""
+        aois = create_store_layout()
+        
+        # Mix of valid and missing directions
+        # Some samples looking at shelves, some with missing direction
+        samples = np.array([
+            [300.0, 200.0, 0.0, -1.0],   # Valid - looking at shelves below
+            [300.0, 200.0, 0.0, 0.0],    # Missing direction
+            [400.0, 200.0, -1.0, 0.0],   # Valid - looking left at shelves
+            [400.0, 200.0, 0.0, 0.0],    # Missing direction
+            [500.0, 200.0, 0.0, -1.0],   # Valid - looking at shelves below
+        ])
+        
+        result = compute_attention_seconds(
+            samples,
+            aois,
+            field_of_view_deg=90.0,
+            allow_missing_direction=True
+        )
+        
+        # Verify counters
+        assert result.total_samples == 5
+        # Two samples have missing directions
+        # Three samples have valid directions - may or may not hit depending on geometry
+        assert result.samples_with_hits + result.samples_no_winner == 5
+        # At least 2 samples should be no-winner (the missing direction ones)
+        assert result.samples_no_winner >= 2
+
+    def test_compute_attention_list_mixed_samples(self) -> None:
+        """Test list of ViewerSamples with some having allow_missing_direction=True."""
+        aois = create_store_layout()
+        
+        samples = [
+            ViewerSample(position=(300.0, 200.0), direction=(0.0, -1.0)),  # Valid
+            ViewerSample(
+                position=(300.0, 200.0),
+                direction=(0.0, 0.0),
+                allow_missing_direction=True
+            ),  # Missing
+            ViewerSample(position=(400.0, 200.0), direction=(-1.0, 0.0)),  # Valid
+            ViewerSample(
+                position=(400.0, 200.0),
+                direction=(0.0, 0.0),
+                allow_missing_direction=True
+            ),  # Missing
+        ]
+        
+        result = compute_attention_seconds(samples, aois, field_of_view_deg=90.0)
+        
+        # Verify counters
+        assert result.total_samples == 4
+        assert result.samples_with_hits + result.samples_no_winner == 4
+        # Two samples have missing directions
+        assert result.samples_no_winner >= 2
+
+    def test_compute_attention_all_missing_directions(self) -> None:
+        """Test that all samples with missing directions results in zero hits."""
+        aois = create_store_layout()
+        
+        # All samples have missing direction
+        samples = np.array([
+            [100.0, 100.0, 0.0, 0.0],
+            [200.0, 200.0, 0.0, 0.0],
+            [300.0, 300.0, 0.0, 0.0],
+            [400.0, 400.0, 0.0, 0.0],
+            [500.0, 500.0, 0.0, 0.0],
+        ])
+        
+        result = compute_attention_seconds(
+            samples,
+            aois,
+            field_of_view_deg=90.0,
+            allow_missing_direction=True
+        )
+        
+        # All samples should be no-winner
+        assert result.total_samples == 5
+        assert result.samples_with_hits == 0
+        assert result.samples_no_winner == 5
+        
+        # All AOIs should have zero hits
+        for aoi_id, aoi_result in result.aoi_results.items():
+            assert aoi_result.hit_count == 0
+            assert aoi_result.total_attention_seconds == 0.0
+
+    def test_compute_attention_missing_direction_flag_false(self) -> None:
+        """Test that NumPy array with (0, 0) and allow_missing_direction=False raises error."""
+        aois = create_store_layout()
+        
+        # Sample with missing direction
+        samples = np.array([
+            [100.0, 100.0, 1.0, 0.0],
+            [200.0, 200.0, 0.0, 0.0],  # Missing direction
+        ])
+        
+        # Should raise error with flag=False (default)
+        with pytest.raises(ValidationError) as exc_info:
+            compute_attention_seconds(
+                samples,
+                aois,
+                field_of_view_deg=90.0,
+                allow_missing_direction=False
+            )
+        
+        assert "unit vector" in str(exc_info.value).lower() or "zero" in str(exc_info.value).lower()
+
+    def test_streaming_mode_with_missing_directions(self) -> None:
+        """Test compute_attention_seconds_streaming with missing directions."""
+        from view_arc.tracking import compute_attention_seconds_streaming
+        
+        aois = create_store_layout()
+        
+        # Mix of valid and missing directions
+        samples = np.array([
+            [300.0, 200.0, 0.0, -1.0],   # Valid
+            [300.0, 200.0, 0.0, 0.0],    # Missing
+            [400.0, 200.0, -1.0, 0.0],   # Valid
+            [400.0, 200.0, 0.0, 0.0],    # Missing
+            [500.0, 200.0, 0.0, -1.0],   # Valid
+        ])
+        
+        result_gen = compute_attention_seconds_streaming(
+            samples,
+            aois,
+            field_of_view_deg=90.0,
+            chunk_size=2,
+            allow_missing_direction=True
+        )
+        
+        # Consume generator to get final result
+        result = None
+        for result in result_gen:
+            pass  # Iterate through all chunks
+        
+        # Verify final result counters
+        assert result is not None
+        assert result.total_samples == 5
+        assert result.samples_with_hits + result.samples_no_winner == 5
+        # At least 2 samples should be no-winner (the missing direction ones)
+        assert result.samples_no_winner >= 2
+
+    def test_streaming_mode_missing_direction_default_error(self) -> None:
+        """Test that streaming mode raises error for missing directions by default."""
+        from view_arc.tracking import compute_attention_seconds_streaming
+        
+        aois = create_store_layout()
+        
+        samples = np.array([
+            [300.0, 200.0, 1.0, 0.0],
+            [300.0, 200.0, 0.0, 0.0],  # Missing direction
+        ])
+        
+        # Should raise error when consuming generator with default allow_missing_direction=False
+        with pytest.raises(ValidationError) as exc_info:
+            result_gen = compute_attention_seconds_streaming(
+                samples,
+                aois,
+                field_of_view_deg=90.0,
+                chunk_size=2
+            )
+            # Must consume generator to trigger validation
+            for _ in result_gen:
+                pass
+        
+        assert "unit vector" in str(exc_info.value).lower() or "zero" in str(exc_info.value).lower()
+
+    def test_missing_direction_maintains_invariants(self) -> None:
+        """Test that missing direction samples maintain result invariants."""
+        aois = create_store_layout()
+        
+        # Create samples with known outcomes
+        samples = [
+            ViewerSample(position=(300.0, 200.0), direction=(0.0, -1.0)),  # Valid - likely hits shelf
+            ViewerSample(
+                position=(300.0, 200.0),
+                direction=(0.0, 0.0),
+                allow_missing_direction=True
+            ),  # Missing - no hit
+            ViewerSample(
+                position=(999.0, 999.0),
+                direction=(0.0, 0.0),
+                allow_missing_direction=True
+            ),  # Missing - no hit
+        ]
+        
+        result = compute_attention_seconds(samples, aois, field_of_view_deg=90.0)
+        
+        # Verify invariants
+        assert result.total_samples == 3
+        assert result.samples_with_hits + result.samples_no_winner == result.total_samples
+        assert result.samples_with_hits >= 0
+        assert result.samples_no_winner >= 2  # At least the two missing direction samples
+        
+        # Verify hit counts sum correctly
+        total_hits = sum(aoi_result.hit_count for aoi_result in result.aoi_results.values())
+        assert total_hits == result.samples_with_hits

@@ -642,3 +642,130 @@ class TestValidateTrackingParamsNumpyScalars:
             max_range=500,  # Python int
             sample_interval=1.0,  # Python float
         )  # Should not raise
+
+
+# =============================================================================
+# Tests: normalize_sample_input() - Missing Direction Handling
+# =============================================================================
+
+
+class TestNormalizeSampleInputMissingDirection:
+    """Test normalize_sample_input() with missing direction data."""
+
+    def test_normalize_numpy_zero_direction_default(self) -> None:
+        """Test that (0, 0) direction raises error by default."""
+        from view_arc.tracking.validation import normalize_sample_input
+        
+        # NumPy array with zero-magnitude direction
+        samples = np.array([
+            [100.0, 100.0, 0.0, 0.0],
+        ])
+        
+        with pytest.raises(ValidationError) as exc_info:
+            normalize_sample_input(samples)
+        
+        assert "unit vector" in str(exc_info.value).lower() or "zero" in str(exc_info.value).lower()
+
+    def test_normalize_numpy_zero_direction_allowed(self) -> None:
+        """Test that (0, 0) creates sample with allow_missing_direction=True when flag is set."""
+        from view_arc.tracking.validation import normalize_sample_input
+        
+        # NumPy array with zero-magnitude direction
+        samples = np.array([
+            [100.0, 100.0, 0.0, 0.0],
+            [200.0, 200.0, 1.0, 0.0],
+        ])
+        
+        result = normalize_sample_input(samples, allow_missing_direction=True)
+        
+        assert len(result) == 2
+        
+        # First sample should have missing direction flag
+        assert result[0].position == (100.0, 100.0)
+        assert result[0].direction == (0.0, 0.0)
+        assert result[0].allow_missing_direction is True
+        
+        # Second sample should be normal
+        assert result[1].position == (200.0, 200.0)
+        assert result[1].direction == (1.0, 0.0)
+        assert result[1].allow_missing_direction is False
+
+    def test_normalize_numpy_all_zero_directions(self) -> None:
+        """Test NumPy array with all zero directions and flag=True."""
+        from view_arc.tracking.validation import normalize_sample_input
+        
+        samples = np.array([
+            [100.0, 100.0, 0.0, 0.0],
+            [200.0, 200.0, 0.0, 0.0],
+            [300.0, 300.0, 0.0, 0.0],
+        ])
+        
+        result = normalize_sample_input(samples, allow_missing_direction=True)
+        
+        assert len(result) == 3
+        for sample in result:
+            assert sample.direction == (0.0, 0.0)
+            assert sample.allow_missing_direction is True
+
+    def test_normalize_list_with_missing_direction_flag_true(self) -> None:
+        """Test that list with ViewerSample(..., allow_missing_direction=True) passes through."""
+        from view_arc.tracking.validation import normalize_sample_input
+        
+        samples = [
+            ViewerSample(
+                position=(100.0, 100.0),
+                direction=(0.0, 0.0),
+                allow_missing_direction=True
+            ),
+            ViewerSample(
+                position=(200.0, 200.0),
+                direction=(1.0, 0.0)
+            ),
+        ]
+        
+        result = normalize_sample_input(samples)
+        
+        # Should return same list
+        assert result is samples
+        assert len(result) == 2
+        assert result[0].allow_missing_direction is True
+        assert result[1].allow_missing_direction is False
+
+    def test_normalize_list_with_missing_direction_flag_false(self) -> None:
+        """Test that list with ViewerSample(direction=(0,0), allow_missing_direction=False) raises error."""
+        from view_arc.tracking.validation import normalize_sample_input
+        
+        # This should fail during ViewerSample construction
+        with pytest.raises(ValidationError) as exc_info:
+            samples = [
+                ViewerSample(
+                    position=(100.0, 100.0),
+                    direction=(0.0, 0.0),
+                    allow_missing_direction=False
+                ),
+            ]
+        
+        assert "unit vector" in str(exc_info.value).lower()
+
+    def test_normalize_numpy_mixed_valid_and_zero_directions(self) -> None:
+        """Test NumPy array with mixture of valid and zero-magnitude directions."""
+        from view_arc.tracking.validation import normalize_sample_input
+        
+        samples = np.array([
+            [100.0, 100.0, 1.0, 0.0],   # Valid
+            [200.0, 200.0, 0.0, 0.0],   # Missing
+            [300.0, 300.0, 0.0, 1.0],   # Valid
+            [400.0, 400.0, 0.0, 0.0],   # Missing
+            [500.0, 500.0, -1.0, 0.0],  # Valid
+        ])
+        
+        result = normalize_sample_input(samples, allow_missing_direction=True)
+        
+        assert len(result) == 5
+        
+        # Check each sample
+        assert result[0].allow_missing_direction is False  # Valid direction
+        assert result[1].allow_missing_direction is True   # Missing
+        assert result[2].allow_missing_direction is False  # Valid
+        assert result[3].allow_missing_direction is True   # Missing
+        assert result[4].allow_missing_direction is False  # Valid

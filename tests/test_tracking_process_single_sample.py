@@ -698,3 +698,131 @@ class TestProcessSingleSampleValidation:
         # Result should be one of the duplicate IDs
         # (which one is undefined, depends on which AOI wins)
         assert result == "duplicate" or result is None
+
+
+# =============================================================================
+# Tests: process_single_sample() - Missing Direction Handling
+# =============================================================================
+
+
+class TestProcessSingleSampleMissingDirection:
+    """Test process_single_sample() with missing direction data."""
+
+    def test_process_single_sample_missing_direction_flag_false(self) -> None:
+        """Test that sample with allow_missing_direction=False and direction=(0,0) raises error during construction."""
+        aoi = AOI(id="shelf_a", contour=make_square_contour((100, 150), 15))
+        
+        # This should fail during ViewerSample construction
+        with pytest.raises(ValidationError) as exc_info:
+            sample = ViewerSample(
+                position=(100.0, 100.0),
+                direction=(0.0, 0.0),
+                allow_missing_direction=False
+            )
+        
+        assert "unit vector" in str(exc_info.value).lower()
+
+    def test_process_single_sample_missing_direction_flag_true(self) -> None:
+        """Test that sample with allow_missing_direction=True returns None."""
+        sample = ViewerSample(
+            position=(100.0, 100.0),
+            direction=(0.0, 0.0),
+            allow_missing_direction=True
+        )
+        
+        aoi = AOI(id="shelf_a", contour=make_square_contour((100, 150), 15))
+        
+        result = process_single_sample(
+            sample,
+            [aoi],
+            field_of_view_deg=90.0,
+            max_range=200.0,
+        )
+        
+        # Should return None for missing direction
+        assert result is None
+
+    def test_process_single_sample_missing_direction_with_details(self) -> None:
+        """Test that missing direction returns SingleSampleResult(winning_aoi_id=None) when return_details=True."""
+        sample = ViewerSample(
+            position=(100.0, 100.0),
+            direction=(0.0, 0.0),
+            allow_missing_direction=True
+        )
+        
+        aoi = AOI(id="shelf_a", contour=make_square_contour((100, 150), 15))
+        
+        result = process_single_sample(
+            sample,
+            [aoi],
+            field_of_view_deg=90.0,
+            max_range=200.0,
+            return_details=True,
+        )
+        
+        # Should return SingleSampleResult with None winner
+        assert isinstance(result, SingleSampleResult)
+        assert result.winning_aoi_id is None
+        assert result.interval_details is None or result.interval_details == []
+
+    def test_missing_direction_does_not_call_obstacle_api(self) -> None:
+        """Test that obstacle API is never called for missing directions (indirectly verified)."""
+        sample = ViewerSample(
+            position=(100.0, 100.0),
+            direction=(0.0, 0.0),
+            allow_missing_direction=True
+        )
+        
+        # Create an AOI that would normally be visible
+        aoi = AOI(id="visible_shelf", contour=make_square_contour((100, 150), 15))
+        
+        result = process_single_sample(
+            sample,
+            [aoi],
+            field_of_view_deg=90.0,
+            max_range=200.0,
+        )
+        
+        # Even though AOI would be visible with valid direction, 
+        # missing direction means no hit
+        assert result is None
+
+    def test_missing_direction_with_multiple_aois(self) -> None:
+        """Test that missing direction returns None even with multiple AOIs present."""
+        sample = ViewerSample(
+            position=(100.0, 100.0),
+            direction=(0.0, 0.0),
+            allow_missing_direction=True
+        )
+        
+        aois = [
+            AOI(id="shelf_a", contour=make_square_contour((100, 150), 15)),
+            AOI(id="shelf_b", contour=make_square_contour((150, 150), 15)),
+            AOI(id="shelf_c", contour=make_square_contour((50, 150), 15)),
+        ]
+        
+        result = process_single_sample(
+            sample,
+            aois,
+            field_of_view_deg=180.0,
+            max_range=500.0,
+        )
+        
+        assert result is None
+
+    def test_missing_direction_with_zero_aois(self) -> None:
+        """Test that missing direction with empty AOI list returns None."""
+        sample = ViewerSample(
+            position=(100.0, 100.0),
+            direction=(0.0, 0.0),
+            allow_missing_direction=True
+        )
+        
+        result = process_single_sample(
+            sample,
+            [],
+            field_of_view_deg=90.0,
+            max_range=200.0,
+        )
+        
+        assert result is None

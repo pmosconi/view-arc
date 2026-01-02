@@ -384,7 +384,73 @@ class ViewerSample:
     position: tuple[float, float]  # (x, y) in image coordinates
     direction: tuple[float, float]  # unit vector (dx, dy)
     timestamp: float | None = None  # optional timestamp
+    allow_missing_direction: bool = False  # allow (0,0) direction
 ```
+
+### Handling Missing Direction Data
+
+In real-world scenarios, direction data may occasionally be unavailable due to tracking failures, occlusions, or sensor dropouts. The tracking API can gracefully handle missing directions without discarding entire samples:
+
+```python
+import numpy as np
+from view_arc import compute_attention_seconds, AOI
+
+# Define AOIs
+aois = [
+    AOI(id="shelf_A", contour=np.array([[100, 100], [200, 100], [200, 200], [100, 200]])),
+    AOI(id="shelf_B", contour=np.array([[300, 100], [400, 100], [400, 200], [300, 200]])),
+]
+
+# Samples with some missing directions (0, 0)
+samples = np.array([
+    [150.0, 300.0, 0.0, -1.0],    # Valid direction - looking at shelves
+    [150.0, 300.0, 0.0, 0.0],     # Missing direction (tracking failure)
+    [350.0, 300.0, -1.0, 0.0],    # Valid direction - moved, looking left
+    [350.0, 300.0, 0.0, 0.0],     # Missing direction
+])
+
+# Enable missing direction handling
+result = compute_attention_seconds(
+    samples, 
+    aois,
+    allow_missing_direction=True  # Default: False
+)
+
+print(f"Total samples: {result.total_samples}")  # 4
+print(f"Samples with hits: {result.samples_with_hits}")  # 2 (only valid directions)
+print(f"Samples no winner: {result.samples_no_winner}")  # 2 (missing directions)
+```
+
+**Behavior:**
+- Samples with direction `(0.0, 0.0)` are treated as "no hit"
+- They increment `samples_no_winner` counter
+- No AOI receives attention for these samples
+- Position data is preserved (useful for path tracking)
+- All other validation and result invariants are maintained
+
+**When to use:**
+- Tracking systems with occasional dropout
+- Integrating data from imperfect sensors
+- Preserving temporal continuity despite missing data
+- Analyzing attention patterns while accounting for data quality
+
+**Per-sample control (list input):**
+```python
+from view_arc import ViewerSample
+
+samples = [
+    ViewerSample(position=(150, 300), direction=(0.0, -1.0)),  # Valid
+    ViewerSample(position=(150, 300), direction=(0.0, 0.0), 
+                 allow_missing_direction=True),  # Missing, but allowed
+    ViewerSample(position=(350, 300), direction=(-1.0, 0.0)),  # Valid
+]
+
+result = compute_attention_seconds(samples, aois)  # Works without global flag
+```
+
+**Performance note:** Samples with missing directions skip the obstacle detection algorithm entirely, making them faster to process than normal samples.
+
+See `examples/missing_direction_example.py` for a complete demonstration.
 
 #### `AOI`
 ```python

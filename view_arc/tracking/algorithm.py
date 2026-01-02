@@ -212,6 +212,19 @@ def process_single_sample(
     # Validate tracking parameters
     validate_tracking_params(fov_deg=field_of_view_deg, max_range=max_range)
 
+    # Handle missing directions (skip obstacle API entirely)
+    from view_arc.tracking.dataclasses import is_missing_direction
+    
+    if is_missing_direction(sample.direction):
+        if not sample.allow_missing_direction:
+            raise ValidationError(
+                "Sample has missing direction (0.0, 0.0) but allow_missing_direction=False"
+            )
+        # Return no-hit result without calling obstacle API
+        if return_details:
+            return SingleSampleResult(winning_aoi_id=None)
+        return None
+
     # Handle empty AOI list
     if len(aois) == 0:
         if return_details:
@@ -326,6 +339,7 @@ def compute_attention_seconds(
     sample_interval: float = 1.0,
     session_config: SessionConfig | None = None,
     enable_profiling: bool = False,
+    allow_missing_direction: bool = False,
 ) -> TrackingResultWithConfig:
     """Compute accumulated attention seconds for each AOI from a batch of samples.
 
@@ -372,6 +386,11 @@ def compute_attention_seconds(
         enable_profiling: If True, capture lightweight performance metrics (timing,
             sample counters) and include them in the result. Default False.
             Note: Profiling adds ~4x overhead due to tracemalloc but does not alter results.
+        allow_missing_direction: If True, allows samples with missing direction data.
+            For NumPy arrays, zero-magnitude directions are converted to (0.0, 0.0) sentinel.
+            For list inputs, samples must have allow_missing_direction=True individually.
+            Samples with missing directions are treated as "no hit" and skip obstacle detection.
+            Default False maintains strict validation (zero directions raise ValidationError).
 
     Returns:
         TrackingResultWithConfig containing:
@@ -421,7 +440,7 @@ def compute_attention_seconds(
         tracemalloc.start()
 
     # Normalize input to list of ViewerSample objects
-    normalized_samples = normalize_sample_input(samples)
+    normalized_samples = normalize_sample_input(samples, allow_missing_direction=allow_missing_direction)
 
     # Determine frame_size for bounds checking
     frame_size: tuple[float, float] | None = None
@@ -524,7 +543,7 @@ def compute_attention_seconds(
 
 
 def _iterate_samples_chunked(
-    samples: SampleInput, chunk_size: int
+    samples: SampleInput, chunk_size: int, allow_missing_direction: bool = False
 ) -> Generator[list[ViewerSample], None, None]:
     """Iterate through samples in chunks, normalizing only chunk_size samples at a time.
 
@@ -534,6 +553,10 @@ def _iterate_samples_chunked(
     Args:
         samples: Input samples (list of ViewerSample or numpy array)
         chunk_size: Number of samples per chunk
+        allow_missing_direction: If True, allows zero-magnitude direction vectors
+            in NumPy arrays to be converted to (0.0, 0.0) sentinel with the flag set.
+            For list inputs, samples are yielded as-is and their individual flags
+            are respected. Default False maintains strict validation.
 
     Yields:
         Lists of ViewerSample objects, each containing at most chunk_size samples
@@ -572,9 +595,20 @@ def _iterate_samples_chunked(
                 # Normalize direction to unit vector
                 mag = math.sqrt(dx * dx + dy * dy)
                 if mag == 0:
-                    raise ValidationError(
-                        f"Sample at index {i} has zero-magnitude direction vector"
-                    )
+                    if allow_missing_direction:
+                        # Create sample with missing direction sentinel
+                        chunk.append(
+                            ViewerSample(
+                                position=(x, y),
+                                direction=(0.0, 0.0),
+                                allow_missing_direction=True,
+                            )
+                        )
+                        continue
+                    else:
+                        raise ValidationError(
+                            f"Sample at index {i} has zero-magnitude direction vector"
+                        )
                 dx_norm, dy_norm = dx / mag, dy / mag
                 chunk.append(
                     ViewerSample(
@@ -598,6 +632,7 @@ def compute_attention_seconds_streaming(
     sample_interval: float = 1.0,
     session_config: SessionConfig | None = None,
     chunk_size: int = 100,
+    allow_missing_direction: bool = False,
 ) -> Generator[TrackingResultWithConfig, None, None]:
     """Compute attention seconds using streaming mode for true memory efficiency.
 
@@ -631,6 +666,11 @@ def compute_attention_seconds_streaming(
         session_config: Optional session configuration for metadata tracking
         chunk_size: Number of samples to process per chunk (default 100).
             Must be positive. Smaller values reduce memory but increase overhead.
+        allow_missing_direction: If True, allows samples with missing direction data.
+            For NumPy arrays, zero-magnitude directions are converted to (0.0, 0.0) sentinel.
+            For list inputs, samples must have allow_missing_direction=True individually.
+            Samples with missing directions are treated as "no hit" and skip obstacle detection.
+            Default False maintains strict validation (zero directions raise ValidationError).
 
     Yields:
         TrackingResultWithConfig after processing each chunk. The final yield
@@ -689,7 +729,7 @@ def compute_attention_seconds_streaming(
 
     # Process samples in chunks (true streaming - only chunk_size in memory)
     # _iterate_samples_chunked normalizes only the current chunk, not the entire array
-    for chunk_samples in _iterate_samples_chunked(samples, chunk_size):
+    for chunk_samples in _iterate_samples_chunked(samples, chunk_size, allow_missing_direction):
         # Validate this chunk (only these samples are in memory)
         validate_viewer_samples(chunk_samples, frame_size=frame_size)
 
