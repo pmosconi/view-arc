@@ -57,6 +57,10 @@ example-basic:  ## Run basic attention tracking example
 example-simulation:  ## Run simulated store session example
 	uv run python examples/simulated_store_session.py
 
+example-tracking-video:  ## Generate tracking visualization with frames and create video
+	uv run python examples/real_image_processing_tracking_full.py
+	cd examples/output/SVB && ffmpeg -y -framerate 2 -i frames/frame_%04d.png -vf "scale=ceil(iw/2)*2:ceil(ih/2)*2" -c:v libx264 -pix_fmt yuv420p tracking_video.mp4
+
 clean:  ## Clean up generated files
 	rm -rf .pytest_cache
 	rm -rf .mypy_cache

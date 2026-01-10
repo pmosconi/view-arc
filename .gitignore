@@ -163,3 +163,4 @@ clusters/
 tracks/
 
 .DS_Store
+examples/output/
